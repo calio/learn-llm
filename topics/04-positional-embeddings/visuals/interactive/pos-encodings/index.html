@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Positional Embeddings Visualizer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="../../../../common/css/chatbox.css" />
+    <style> body { padding-right: 380px; } @media (max-width:900px){ body{padding-right:0} } </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Positional Embeddings Visualizer</h1>
+        <p class="muted">Compare sinusoidal embeddings and RoPE rotations. Inspect components across positions and see 2D rotation effects.</p>
+      </header>
+
+      <section class="panel controls">
+        <div class="group">
+          <label>Dimension (d)
+            <input id="dim" type="number" min="8" max="256" step="8" value="64" />
+          </label>
+          <label>Positions (N)
+            <input id="len" type="number" min="4" max="256" step="4" value="64" />
+          </label>
+          <label>RoPE base
+            <input id="base" type="number" min="1000" max="100000" step="1000" value="10000" />
+          </label>
+        </div>
+        <div class="group">
+          <button id="render">Render</button>
+          <button id="reset">Reset</button>
+        </div>
+      </section>
+
+      <section class="panel viz">
+        <h2>Sinusoidal Embeddings Heatmap (positions × dims)</h2>
+        <canvas id="sinus" width="900" height="280"></canvas>
+      </section>
+
+      <section class="panel viz">
+        <h2>RoPE Rotation of a Sample Vector Across Positions</h2>
+        <canvas id="rope" width="900" height="280"></canvas>
+        <div class="muted">Shows the first few 2D planes of a vector as it is rotated per position.</div>
+      </section>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="../../../../common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ provider: 'openai', title: 'Ask about Positional Embeddings', layout: 'sidebar', sidebarWidth: 380, pageContext: true, pageContent: true, contextSelector: '.wrap' });
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>

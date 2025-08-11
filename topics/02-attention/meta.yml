@@ -1,0 +1,7 @@
+title: Attention
+slug: attention
+difficulty: intermediate
+prerequisites: [vector-similarity]
+tags: [attention, transformers, self-attention, cross-attention]
+estimated_time_minutes: 120
+last_updated: 2025-08-11

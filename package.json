@@ -1,0 +1,14 @@
+{
+  "name": "learn-llm",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Educational materials for LLM topics",
+  "scripts": {
+    "dev": "node server/dev-server.js"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0"
+  }
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Attention Heatmap Demo</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="../../../../common/css/chatbox.css" />
+    <style>
+      body { padding-right: 380px; }
+      @media (max-width: 900px) { body { padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Attention Heatmap Demo</h1>
+        <p class="muted">Visualize scaled dot-product attention with multiple heads. Toggle causal masks, pick heads, and inspect weights.</p>
+      </header>
+
+      <section class="panel controls">
+        <div class="group">
+          <label>Model dim (d_model)
+            <input id="dim" type="number" min="8" max="256" step="8" value="64" />
+          </label>
+          <label>Heads
+            <input id="heads" type="number" min="1" max="8" step="1" value="4" />
+          </label>
+          <label>
+            <input id="causal" type="checkbox" checked /> Causal mask
+          </label>
+        </div>
+        <div class="group">
+          <label>View
+            <select id="view">
+              <option value="avg">Average (all heads)</option>
+            </select>
+          </label>
+          <button id="randomize">Randomize Projections</button>
+          <button id="reset">Reset Example</button>
+        </div>
+      </section>
+
+      <section class="panel io">
+        <div class="col">
+          <h2>Self-attention tokens</h2>
+          <textarea id="tokens" rows="3">the quick brown fox jumps over the lazy dog</textarea>
+        </div>
+        <div class="col">
+          <h2>Cross-attention source (optional)</h2>
+          <textarea id="source" rows="3">le renard brun rapide saute par-dessus le chien paresseux</textarea>
+          <div class="muted">If non-empty, computes cross-attention (Q from left, K/V from right). If empty, uses self-attention.</div>
+        </div>
+      </section>
+
+      <section class="panel viz">
+        <div class="legend">
+          <div>Rows: queries (target positions)</div>
+          <div>Cols: keys/values (source positions)</div>
+        </div>
+        <canvas id="heatmap" width="900" height="520" aria-label="attention heatmap"></canvas>
+        <div id="tooltip" class="tooltip" role="tooltip" aria-hidden="true"></div>
+      </section>
+
+      <section class="panel note">
+        <p class="muted">Tip: With causal mask on, positions cannot attend to future tokens. Toggle head in the View menu to see per-head patterns.</p>
+      </section>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="../../../../common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ provider: 'openai', title: 'Ask about Attention', layout: 'sidebar', sidebarWidth: 380, pageContext: true, pageContent: true, contextSelector: '.wrap' });
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>

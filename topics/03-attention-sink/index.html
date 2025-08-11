@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>03 · Attention Sink</title>
+    <style>
+      :root { --bg:#0b0f14; --panel:#121922; --text:#e6eef8; --muted:#9bb0c3; --link:#8ab4ff; --card:#0e1520; --border:#223248; }
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif;padding-right:380px}
+      .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+      a{color:var(--link);text-decoration:none}
+      a:hover{text-decoration:underline}
+      header{margin-bottom:10px}
+      h1{margin:0 0 4px;font-size:24px}
+      .meta{color:var(--muted);font-size:13px}
+      .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0}
+      ul{margin:8px 0 0}
+      code{background:#0b1220;border:1px solid #223248;border-radius:6px;padding:2px 6px}
+      @media (max-width: 900px){ body{padding-right:0} }
+    </style>
+    <link rel="stylesheet" href="../../common/css/chatbox.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>03 · Attention Sink</h1>
+        <div class="meta">Intermediate · analysis of attention concentration and anchors</div>
+      </header>
+
+      <div class="panel">
+        <h2>Quick links</h2>
+        <ul>
+          <li><a href="notes/01-concepts.md">Notes: Concepts</a> · <a class="pretty" href="../../docs.html?path=topics/03-attention-sink/notes/01-concepts.md">view</a></li>
+          <li><a href="notes/02-measuring.md">Notes: Measuring</a> · <a class="pretty" href="../../docs.html?path=topics/03-attention-sink/notes/02-measuring.md">view</a></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Back</h2>
+        <a href="../../index.html">All topics</a>
+      </div>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="../../common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ provider: 'openai', title: 'Ask about Attention Sink', layout: 'sidebar', sidebarWidth: 380, pageContext: true, pageContent: false });
+      document.addEventListener('click', function (e) {
+        const a = e.target.closest('a');
+        if (!a) return;
+        const href = a.getAttribute('href') || '';
+        if (href.endsWith('.md') && !a.classList.contains('pretty')) {
+          e.preventDefault();
+          window.location.href = '../../docs.html?path=' + encodeURIComponent('topics/03-attention-sink/' + href.replace(/^\.?\/?/, ''));
+        }
+      });
+    </script>
+  </body>
+</html>

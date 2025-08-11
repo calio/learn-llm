@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown Viewer</title>
+    <link rel="stylesheet" href="common/css/md-viewer.css" />
+    <link rel="stylesheet" href="common/css/chatbox.css" />
+    <style>
+      /* Add right padding so content doesn't hide behind the sidebar */
+      body { padding-right: 380px; }
+      @media (max-width: 900px) { body { padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Markdown Viewer</h1>
+        <p>Rendering: <code id="doc-path"></code></p>
+      </header>
+      <div id="md-root">Loading…</div>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script>
+      // Display current path in header and store raw md globally for chat context
+      const params = new URL(window.location.href).searchParams;
+      const p = params.get('path') || '';
+      document.getElementById('doc-path').textContent = p;
+    </script>
+    <script src="common/js/md-viewer.js"></script>
+    <script src="common/js/chatbox.js"></script>
+    <script>
+      // Sidebar chat with page content context
+      Chatbox.mount({
+        provider: 'openai',
+        title: 'Ask about this page',
+        layout: 'sidebar',
+        sidebarWidth: 380,
+        pageContext: true,
+        pageContent: true,
+        contextSelector: '#md-root',
+        getPageContent: () => {
+          // Use raw MD if available for higher fidelity
+          if (window.__MD_RAW) return window.__MD_RAW;
+          const el = document.querySelector('#md-root');
+          return el ? el.innerText || el.textContent || '' : '';
+        },
+        pageContentLimit: 12000,
+      });
+    </script>
+  </body>
+</html>
