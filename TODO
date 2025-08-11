@@ -1,0 +1,25 @@
+Use prompt from: https://chatgpt.com/c/68999fd3-2adc-832b-afcd-c6922b632ee5
+
+Topics:
+
+- Activations (GLU, SiLU, SwiGLU etc.)
+- Chunk Attention
+- Multi-Head Latent Attention
+- iROPE
+- pre norm vs post norm
+- MOE
+- transformer archetecture
+- pooling: linear, attention pooling, cls token and others
+- other keywords in https://chatgpt.com/c/6899974d-bbd0-8321-8e85-7f4386ad8b20?model=gpt-5-thinking
+
+- Loss (Next token, aux loss, MTP multi-token prediction)
+- SFT (data format, including harmony)
+- RL (DPO, GRPO, RLVR, ExPO)
+- Optimizer (AdamW, Muon)
+- LoRA & Glore
+- Quant (GTPQ, AWQ, MXFP4)
+- distilation
+- multimodal (perceiver)
+- tool use?
+
+Also do the same for vision encoders.
