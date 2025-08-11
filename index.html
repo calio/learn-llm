@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Learn LLM - Topics</title>
+    <style>
+      :root {
+        --bg: #0b0f14; --panel:#121922; --text:#e6eef8; --muted:#9bb0c3; --link:#8ab4ff; --card:#0e1520; --border:#223248;
+      }
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+      .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
+      header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+      h1{font-size:26px;margin:0}
+      p.lead{color:var(--muted);margin:6px 0 0}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+      .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+      .card h2{margin:0 0 8px;font-size:18px}
+      .meta{color:var(--muted);font-size:13px;margin-bottom:8px}
+      a{color:var(--link);text-decoration:none}
+      a:hover{text-decoration:underline}
+      footer{margin-top:18px;color:var(--muted);font-size:13px}
+    </style>
+    <link rel="stylesheet" href="common/css/chatbox.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>Learn LLM</h1>
+          <p class="lead">Collection of topic units with notes, code, and interactive visuals.</p>
+        </div>
+      </header>
+
+      <section class="grid">
+        <!-- Topic card: Vector Similarity -->
+        <article class="card">
+          <h2><a href="topics/01-vector-similarity/index.html">01 · Vector Similarity</a></h2>
+          <div class="meta">Beginner · Similarity, distance, cosine, L2</div>
+          <ul>
+            <li><a href="topics/01-vector-similarity/visuals/interactive/vector-similarity-explorer/index.html">Interactive: 2D explorer</a></li>
+            <li><a href="topics/01-vector-similarity/notes/01-concepts.md">Notes: Concepts</a></li>
+            <li><a href="topics/01-vector-similarity/code/python/similarities.py">Code: metrics (Python)</a></li>
+          </ul>
+        </article>
+      </section>
+
+      <footer>
+        Add more topics under <code>topics/</code>; this page can be extended or auto-generated later.
+      </footer>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ endpoint: 'http://localhost:5057/api/chat', title: 'Ask about Learn LLM' });
+    </script>
+  </body>
+</html>

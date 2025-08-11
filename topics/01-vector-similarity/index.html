@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>01 · Vector Similarity</title>
+    <style>
+      :root { --bg:#0b0f14; --panel:#121922; --text:#e6eef8; --muted:#9bb0c3; --link:#8ab4ff; --card:#0e1520; --border:#223248; }
+      *{box-sizing:border-box}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+      .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+      a{color:var(--link);text-decoration:none}
+      a:hover{text-decoration:underline}
+      header{margin-bottom:10px}
+      h1{margin:0 0 4px;font-size:24px}
+      .meta{color:var(--muted);font-size:13px}
+      .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0}
+      ul{margin:8px 0 0}
+      code{background:#0b1220;border:1px solid #223248;border-radius:6px;padding:2px 6px}
+    </style>
+    <link rel="stylesheet" href="../../common/css/chatbox.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>01 · Vector Similarity</h1>
+        <div class="meta">Beginner · vectors, similarity, distance, cosine, euclidean</div>
+      </header>
+
+      <div class="panel">
+        <h2>Quick links</h2>
+        <ul>
+          <li><a href="visuals/interactive/vector-similarity-explorer/index.html">Interactive: 2D Similarity Explorer</a></li>
+          <li><a href="notes/01-concepts.md">Notes: Concepts</a></li>
+          <li><a href="notes/02-math.md">Notes: Math</a></li>
+          <li><a href="notes/03-impl-notes.md">Notes: Implementation</a></li>
+          <li><a href="code/python/similarities.py">Code: similarities.py</a></li>
+          <li><a href="code/python/demo.py">Code: demo.py</a></li>
+          <li><a href="data/tiny/toy_vectors.json">Data: toy_vectors.json</a></li>
+          <li><a href="quizzes/quiz.md">Quiz</a></li>
+          <li><a href="references/references.md">References</a></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>Run locally</h2>
+        <p>Open the interactive demo directly in your browser, or serve this folder:</p>
+        <pre><code>cd /Users/calio/code/learn-llm/topics/01-vector-similarity
+python3 -m http.server 8000
+# visit http://localhost:8000</code></pre>
+      </div>
+
+      <div class="panel">
+        <h2>Back</h2>
+        <a href="../../index.html">All topics</a>
+      </div>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="../../common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ endpoint: 'http://localhost:5057/api/chat', title: 'Ask about Vector Similarity' });
+    </script>
+  </body>
+</html>

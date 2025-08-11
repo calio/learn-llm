@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vector Similarity Explorer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="../../../../common/css/chatbox.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Vector Similarity Explorer (2D)</h1>
+      <div class="controls">
+        <div class="vector-input">
+          <h2>Vector A</h2>
+          <label>x <input id="ax" type="number" value="1" step="0.1" /></label>
+          <label>y <input id="ay" type="number" value="0" step="0.1" /></label>
+        </div>
+        <div class="vector-input">
+          <h2>Vector B</h2>
+          <label>x <input id="bx" type="number" value="0.7" step="0.1" /></label>
+          <label>y <input id="by" type="number" value="0.7" step="0.1" /></label>
+        </div>
+        <div class="metric-picker">
+          <h2>Metric</h2>
+          <select id="metric">
+            <option value="cosine">Cosine similarity</option>
+            <option value="cosine_distance">Cosine distance</option>
+            <option value="euclidean">Euclidean (L2)</option>
+            <option value="manhattan">Manhattan (L1)</option>
+            <option value="chebyshev">Chebyshev (L∞)</option>
+            <option value="angular">Angular distance (radians)</option>
+          </select>
+          <button id="randomize">Randomize</button>
+          <button id="reset">Reset</button>
+        </div>
+      </div>
+      <div class="viz">
+        <canvas id="plane" width="480" height="480" aria-label="2D plane"></canvas>
+        <div class="results">
+          <h2>Results</h2>
+          <ul id="values"></ul>
+        </div>
+      </div>
+      <p class="note">Tip: Cosine only depends on angle; Euclidean also depends on vector lengths.</p>
+    </div>
+
+    <div id="chatbox-root"></div>
+    <script src="../../../../common/js/chatbox.js"></script>
+    <script>
+      Chatbox.mount({ endpoint: 'http://localhost:5057/api/chat', title: 'Ask about the Explorer' });
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>
