@@ -9,7 +9,7 @@
         --bg: #0b0f14; --panel:#121922; --text:#e6eef8; --muted:#9bb0c3; --link:#8ab4ff; --card:#0e1520; --border:#223248;
       }
       *{box-sizing:border-box}
-      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif}
+      body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif;padding-right:380px}
       .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
       header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
       h1{font-size:26px;margin:0}
@@ -21,6 +21,7 @@
       a{color:var(--link);text-decoration:none}
       a:hover{text-decoration:underline}
       footer{margin-top:18px;color:var(--muted);font-size:13px}
+      @media (max-width: 900px){ body{padding-right:0} }
     </style>
     <link rel="stylesheet" href="common/css/chatbox.css" />
   </head>
@@ -40,8 +41,29 @@
           <div class="meta">Beginner · Similarity, distance, cosine, L2</div>
           <ul>
             <li><a href="topics/01-vector-similarity/visuals/interactive/vector-similarity-explorer/index.html">Interactive: 2D explorer</a></li>
-            <li><a href="topics/01-vector-similarity/notes/01-concepts.md">Notes: Concepts</a></li>
+            <li><a href="topics/01-vector-similarity/notes/01-concepts.md">Notes: Concepts</a> · <a class="pretty" href="docs.html?path=topics/01-vector-similarity/notes/01-concepts.md">view</a></li>
             <li><a href="topics/01-vector-similarity/code/python/similarities.py">Code: metrics (Python)</a></li>
+          </ul>
+        </article>
+
+        <!-- Topic card: Attention -->
+        <article class="card">
+          <h2><a href="topics/02-attention/index.html">02 · Attention</a></h2>
+          <div class="meta">Intermediate · self-attention, cross-attention, MHA</div>
+          <ul>
+            <li><a href="topics/02-attention/visuals/interactive/attention-demo/index.html">Interactive: Attention heatmap</a></li>
+            <li><a href="topics/02-attention/notes/01-concepts.md">Notes: Concepts</a> · <a class="pretty" href="docs.html?path=topics/02-attention/notes/01-concepts.md">view</a></li>
+            <li><a href="topics/02-attention/code/python/attention_numpy.py">Code: NumPy attention</a></li>
+          </ul>
+        </article>
+
+        <!-- Topic card: Attention Sink -->
+        <article class="card">
+          <h2><a href="topics/03-attention-sink/index.html">03 · Attention Sink</a></h2>
+          <div class="meta">Intermediate · analyzing attention concentration</div>
+          <ul>
+            <li><a href="topics/03-attention-sink/notes/01-concepts.md">Notes: Concepts</a> · <a class="pretty" href="docs.html?path=topics/03-attention-sink/notes/01-concepts.md">view</a></li>
+            <li><a href="topics/03-attention-sink/notes/02-measuring.md">Notes: Measuring</a> · <a class="pretty" href="docs.html?path=topics/03-attention-sink/notes/02-measuring.md">view</a></li>
           </ul>
         </article>
       </section>
@@ -54,7 +76,17 @@
     <div id="chatbox-root"></div>
     <script src="common/js/chatbox.js"></script>
     <script>
-      Chatbox.mount({ endpoint: 'http://localhost:5057/api/chat', title: 'Ask about Learn LLM' });
+      Chatbox.mount({ provider: 'openai', title: 'Ask about Learn LLM', layout: 'sidebar', sidebarWidth: 380, pageContext: true, pageContent: false });
+      // rewrite .md links to docs viewer if clicked
+      document.addEventListener('click', function (e) {
+        const a = e.target.closest('a');
+        if (!a) return;
+        const href = a.getAttribute('href') || '';
+        if (href.endsWith('.md') && !a.classList.contains('pretty')) {
+          e.preventDefault();
+          window.location.href = 'docs.html?path=' + href;
+        }
+      });
     </script>
   </body>
 </html>
