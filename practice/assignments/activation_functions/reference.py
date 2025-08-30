@@ -1,0 +1,100 @@
+"""
+Reference implementation of activation functions using PyTorch.
+"""
+
+import torch
+import torch.nn.functional as F
+import numpy as np
+
+class ActivationFunctions:
+    """PyTorch reference implementations of activation functions."""
+    
+    @staticmethod
+    def relu(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.relu(x_torch)
+        return out.detach().numpy()
+    
+    @staticmethod
+    def relu_grad(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.relu(x_torch)
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
+    
+    @staticmethod
+    def leaky_relu(x, alpha=0.01):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.leaky_relu(x_torch, negative_slope=alpha)
+        return out.detach().numpy()
+    
+    @staticmethod
+    def leaky_relu_grad(x, alpha=0.01):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.leaky_relu(x_torch, negative_slope=alpha)
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
+    
+    @staticmethod
+    def sigmoid(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = torch.sigmoid(x_torch)
+        return out.detach().numpy()
+    
+    @staticmethod
+    def sigmoid_grad(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = torch.sigmoid(x_torch)
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
+    
+    @staticmethod
+    def tanh(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = torch.tanh(x_torch)
+        return out.detach().numpy()
+    
+    @staticmethod
+    def tanh_grad(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = torch.tanh(x_torch)
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
+    
+    @staticmethod
+    def swish(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.silu(x_torch)  # SiLU is the same as Swish
+        return out.detach().numpy()
+    
+    @staticmethod
+    def swish_grad(x):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        out = F.silu(x_torch)
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
+    
+    @staticmethod
+    def gelu(x, approximate=False):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        if approximate:
+            out = F.gelu(x_torch, approximate='tanh')
+        else:
+            out = F.gelu(x_torch, approximate='none')
+        return out.detach().numpy()
+    
+    @staticmethod
+    def gelu_grad(x, approximate=False):
+        x_torch = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+        if approximate:
+            out = F.gelu(x_torch, approximate='tanh')
+        else:
+            out = F.gelu(x_torch, approximate='none')
+        grad_out = torch.ones_like(out)
+        out.backward(grad_out)
+        return x_torch.grad.numpy()
