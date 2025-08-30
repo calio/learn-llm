@@ -2,11 +2,13 @@
 Assignment 3: Attention Mechanisms
 Your Name: _______________
 
-Implement various attention mechanisms used in modern transformer architectures.
+Implement various attention mechanisms used in modern transformer architectures using PyTorch.
 Fill in the TODO sections below.
 """
 
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import math
 
 def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, training=True):
@@ -42,10 +44,10 @@ def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, tr
     # 6. Compute output: attention_weights @ V                                #
     #                                                                           #
     # Hints:                                                                    #
-    # - Use np.matmul() or @ for matrix multiplication                        #
-    # - For masking, use np.where() with a large negative value (-1e9)       #
-    # - Implement softmax carefully to avoid overflow                         #
-    # - For dropout, use np.random.binomial() if training                     #
+    # - Use torch.matmul() or @ for matrix multiplication                     #
+    # - For masking, use torch.where() with a large negative value (-1e9)    #
+    # - Use F.softmax() or implement your own with torch.exp()               #
+    # - For dropout, use F.dropout() if training                             #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -75,6 +77,7 @@ def softmax(x, axis=-1):
     # TODO: Implement numerically stable softmax.                              #
     # Use the identity: softmax(x) = softmax(x - max(x))                      #
     # This prevents overflow in the exponential function.                      #
+    # You can also use F.softmax() directly with dim=axis                     #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -106,16 +109,19 @@ class MultiHeadAttention:
         self.d_k = d_model // num_heads
         self.dropout_p = dropout_p
         
-        # Initialize weight matrices
-        self.W_q = self._init_weights((d_model, d_model))
-        self.W_k = self._init_weights((d_model, d_model))
-        self.W_v = self._init_weights((d_model, d_model))
-        self.W_o = self._init_weights((d_model, d_model))
+        # Initialize weight matrices as nn.Linear layers
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
+        self.W_k = nn.Linear(d_model, d_model, bias=False)
+        self.W_v = nn.Linear(d_model, d_model, bias=False)
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
         
-    def _init_weights(self, shape):
+        # Initialize with Xavier uniform
+        self._init_weights()
+        
+    def _init_weights(self):
         """Initialize weights with Xavier/Glorot uniform initialization."""
-        limit = math.sqrt(6.0 / sum(shape))
-        return np.random.uniform(-limit, limit, shape)
+        for layer in [self.W_q, self.W_k, self.W_v, self.W_o]:
+            nn.init.xavier_uniform_(layer.weight)
     
     def forward(self, query, key, value, mask=None, training=True):
         """
@@ -147,7 +153,7 @@ class MultiHeadAttention:
         # 5. Apply output projection                                               #
         #                                                                           #
         # Hints:                                                                    #
-        # - Use np.reshape() and np.transpose() for tensor manipulation          #
+        # - Use tensor.view() and tensor.transpose() for tensor manipulation     #
         # - Call scaled_dot_product_attention() for the core computation         #
         # - Remember to handle the mask shape for multiple heads                  #
         #############################################################################
@@ -182,15 +188,18 @@ class MultiQueryAttention:
         self.dropout_p = dropout_p
         
         # Initialize weight matrices - note different shapes for K,V
-        self.W_q = self._init_weights((d_model, d_model))
-        self.W_k = self._init_weights((d_model, self.d_k))  # Single head for key
-        self.W_v = self._init_weights((d_model, self.d_k))  # Single head for value
-        self.W_o = self._init_weights((d_model, d_model))
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
+        self.W_k = nn.Linear(d_model, self.d_k, bias=False)  # Single head for key
+        self.W_v = nn.Linear(d_model, self.d_k, bias=False)  # Single head for value
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
         
-    def _init_weights(self, shape):
+        # Initialize with Xavier uniform
+        self._init_weights()
+        
+    def _init_weights(self):
         """Initialize weights with Xavier/Glorot uniform initialization."""
-        limit = math.sqrt(6.0 / sum(shape))
-        return np.random.uniform(-limit, limit, shape)
+        for layer in [self.W_q, self.W_k, self.W_v, self.W_o]:
+            nn.init.xavier_uniform_(layer.weight)
     
     def forward(self, query, key, value, mask=None, training=True):
         """
@@ -261,15 +270,18 @@ class GroupedQueryAttention:
         self.group_size = num_query_heads // num_kv_heads
         
         # Initialize weight matrices
-        self.W_q = self._init_weights((d_model, d_model))
-        self.W_k = self._init_weights((d_model, num_kv_heads * self.d_kv))
-        self.W_v = self._init_weights((d_model, num_kv_heads * self.d_kv))
-        self.W_o = self._init_weights((d_model, d_model))
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
+        self.W_k = nn.Linear(d_model, num_kv_heads * self.d_kv, bias=False)
+        self.W_v = nn.Linear(d_model, num_kv_heads * self.d_kv, bias=False)
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
         
-    def _init_weights(self, shape):
+        # Initialize with Xavier uniform
+        self._init_weights()
+        
+    def _init_weights(self):
         """Initialize weights with Xavier/Glorot uniform initialization."""
-        limit = math.sqrt(6.0 / sum(shape))
-        return np.random.uniform(-limit, limit, shape)
+        for layer in [self.W_q, self.W_k, self.W_v, self.W_o]:
+            nn.init.xavier_uniform_(layer.weight)
     
     def forward(self, query, key, value, mask=None, training=True):
         """
@@ -296,7 +308,7 @@ class GroupedQueryAttention:
         #    K,V become (batch_size, num_query_heads, seq_len, d_kv)             #
         # 5. Apply SDPA and concatenate results                                    #
         #                                                                           #
-        # Hint: Use np.repeat() to replicate KV heads for each group             #
+        # Hint: Use tensor.repeat_interleave() to replicate KV heads for each group #
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -332,22 +344,25 @@ class MultiHeadLatentAttention:
         self.dropout_p = dropout_p
         
         # Initialize weight matrices for MLA
-        self.W_q = self._init_weights((d_model, d_model))
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
         
         # KV compression matrices
-        self.W_kc = self._init_weights((d_model, latent_dim))  # Key compression
-        self.W_vc = self._init_weights((d_model, latent_dim))  # Value compression
+        self.W_kc = nn.Linear(d_model, latent_dim, bias=False)  # Key compression
+        self.W_vc = nn.Linear(d_model, latent_dim, bias=False)  # Value compression
         
         # KV decompression matrices  
-        self.W_ku = self._init_weights((latent_dim, num_heads * self.d_k))  # Key decompression
-        self.W_vu = self._init_weights((latent_dim, num_heads * self.d_k))  # Value decompression
+        self.W_ku = nn.Linear(latent_dim, num_heads * self.d_k, bias=False)  # Key decompression
+        self.W_vu = nn.Linear(latent_dim, num_heads * self.d_k, bias=False)  # Value decompression
         
-        self.W_o = self._init_weights((d_model, d_model))
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
         
-    def _init_weights(self, shape):
+        # Initialize with Xavier uniform
+        self._init_weights()
+        
+    def _init_weights(self):
         """Initialize weights with Xavier/Glorot uniform initialization."""
-        limit = math.sqrt(6.0 / sum(shape))
-        return np.random.uniform(-limit, limit, shape)
+        for layer in [self.W_q, self.W_kc, self.W_vc, self.W_ku, self.W_vu, self.W_o]:
+            nn.init.xavier_uniform_(layer.weight)
     
     def forward(self, query, key, value, mask=None, training=True):
         """
@@ -409,7 +424,7 @@ def create_causal_mask(seq_len):
     # The mask should be lower triangular: position i can only attend to      #
     # positions j <= i (including itself).                                     #
     #                                                                           #
-    # Hint: Use np.tril() (lower triangle) or manual indexing                 #
+    # Hint: Use torch.tril() (lower triangle) or manual indexing             #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -440,7 +455,7 @@ def create_padding_mask(seq_lengths, max_len):
     # For each sequence in the batch, positions beyond its actual length       #
     # should be masked out (False), while valid positions should be True.      #
     #                                                                           #
-    # Hint: Use broadcasting with np.arange() and seq_lengths                  #
+    # Hint: Use broadcasting with torch.arange() and seq_lengths              #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 

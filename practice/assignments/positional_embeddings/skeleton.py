@@ -2,11 +2,12 @@
 Assignment 2: Positional Embeddings
 Your Name: _______________
 
-Implement various positional encoding schemes used in transformer architectures.
+Implement various positional encoding schemes used in transformer architectures using PyTorch.
 Fill in the TODO sections below.
 """
 
-import numpy as np
+import torch
+import torch.nn as nn
 import math
 
 def sinusoidal_positional_encoding(seq_len, d_model, base=10000):
@@ -19,7 +20,7 @@ def sinusoidal_positional_encoding(seq_len, d_model, base=10000):
     - base: Base for the exponential (default 10000)
     
     Returns:
-    - pos_encoding: Array of shape (seq_len, d_model) containing positional encodings
+    - pos_encoding: Tensor of shape (seq_len, d_model) containing positional encodings
     """
     pos_encoding = None
     
@@ -30,10 +31,10 @@ def sinusoidal_positional_encoding(seq_len, d_model, base=10000):
     # PE(pos, 2i+1) = cos(pos / base^(2i/d_model))                            #
     #                                                                           #
     # Hints:                                                                    #
-    # - Create arrays for positions [0, 1, ..., seq_len-1]                    #
-    # - Create arrays for dimensions [0, 1, ..., d_model-1]                   #
+    # - Use torch.arange() to create position and dimension arrays            #
     # - Use broadcasting to compute all combinations efficiently               #
-    # - Be careful about even/odd indexing                                     #
+    # - torch.sin() and torch.cos() for the trigonometric functions          #
+    # - Be careful about even/odd indexing with slicing [0::2] and [1::2]     #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -56,13 +57,14 @@ def learnable_positional_embedding(seq_len, d_model, init_std=0.02):
     - init_std: Standard deviation for initialization
     
     Returns:
-    - pos_embedding: Array of shape (seq_len, d_model) randomly initialized
+    - pos_embedding: Tensor of shape (seq_len, d_model) randomly initialized
     """
     pos_embedding = None
     
     #############################################################################
     # TODO: Generate randomly initialized learnable positional embeddings.     #
     # Initialize from a normal distribution with mean=0, std=init_std          #
+    # Use torch.randn() or torch.normal()                                     #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -111,7 +113,8 @@ def rope_positional_encoding(seq_len, d_model, base=10000):
     # Hints:                                                                    #
     # - Create frequency array: base^(-2*i/d_model) for i in [0, d_model/2)   #
     # - Each frequency is used for 2 consecutive dimensions                    #
-    # - Use broadcasting: positions[:, None] * freqs[None, :]                  #
+    # - Use torch.outer() or broadcasting: positions[:, None] * freqs[None, :] #
+    # - Use torch.repeat_interleave() to duplicate freqs for pairs            #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -145,9 +148,9 @@ def apply_rope(x, cos_cached, sin_cached):
     # x_rotated[..., 2i+1] = x[..., 2i] * sin + x[..., 2i+1] * cos           #
     #                                                                           #
     # Hints:                                                                    #
-    # - Split x into even and odd indexed dimensions                           #
+    # - Split x into even and odd indexed dimensions using slicing             #
     # - Apply rotation formula element-wise                                     #
-    # - Recombine the rotated dimensions                                        #
+    # - Use torch.stack() and torch.flatten() to recombine dimensions         #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -169,7 +172,7 @@ def relative_position_encoding(seq_len, max_distance=32):
     - max_distance: Maximum relative distance to consider
     
     Returns:
-    - relative_positions: Array of shape (seq_len, seq_len) containing relative position indices
+    - relative_positions: Tensor of shape (seq_len, seq_len) containing relative position indices
     """
     relative_positions = None
     
@@ -182,9 +185,9 @@ def relative_position_encoding(seq_len, max_distance=32):
     # from a relative position embedding table.                                #
     #                                                                           #
     # Hints:                                                                    #
-    # - Create position indices [0, 1, ..., seq_len-1]                        #
+    # - Create position indices using torch.arange()                          #
     # - Use broadcasting to compute all pairwise differences                   #
-    # - Apply clipping to limit the range                                      #
+    # - Apply torch.clamp() to limit the range                                #
     # - Shift indices to be positive for embedding lookup                      #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -208,7 +211,7 @@ def create_relative_position_embeddings(max_distance, d_model, init_std=0.02):
     - init_std: Standard deviation for initialization
     
     Returns:
-    - embeddings: Array of shape (2*max_distance + 1, d_model) containing embeddings
+    - embeddings: Tensor of shape (2*max_distance + 1, d_model) containing embeddings
                  Index 0 corresponds to relative position -max_distance
                  Index max_distance corresponds to relative position 0
                  Index 2*max_distance corresponds to relative position +max_distance
@@ -220,6 +223,7 @@ def create_relative_position_embeddings(max_distance, d_model, init_std=0.02):
     # The table should contain embeddings for positions from -max_distance     #
     # to +max_distance (inclusive), so total size is 2*max_distance + 1.      #
     # Initialize from normal distribution with given std.                      #
+    # Use torch.randn() or torch.normal()                                     #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -237,17 +241,18 @@ def lookup_relative_embeddings(relative_positions, embedding_table):
     Look up relative position embeddings using the position indices.
     
     Inputs:
-    - relative_positions: Array of shape (seq_len, seq_len) with position indices
-    - embedding_table: Array of shape (2*max_distance + 1, d_model)
+    - relative_positions: Tensor of shape (seq_len, seq_len) with position indices
+    - embedding_table: Tensor of shape (2*max_distance + 1, d_model)
     
     Returns:
-    - embeddings: Array of shape (seq_len, seq_len, d_model) containing looked-up embeddings
+    - embeddings: Tensor of shape (seq_len, seq_len, d_model) containing looked-up embeddings
     """
     embeddings = None
     
     #############################################################################
     # TODO: Look up embeddings from the table using relative position indices. #
-    # Use the relative_positions array to index into the embedding_table.      #
+    # Use tensor indexing: embedding_table[relative_positions]                 #
+    # Make sure relative_positions contains valid indices (long integers)      #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
@@ -259,3 +264,69 @@ def lookup_relative_embeddings(relative_positions, embedding_table):
     #############################################################################
     
     return embeddings
+
+def alibi_slopes(num_heads):
+    """
+    Generate ALiBi (Attention with Linear Biases) slopes.
+    
+    Inputs:
+    - num_heads: Number of attention heads
+    
+    Returns:
+    - slopes: Tensor of shape (num_heads,) containing slopes for each head
+    """
+    slopes = None
+    
+    #############################################################################
+    # TODO: Generate ALiBi slopes for attention heads.                         #
+    # ALiBi uses different slopes for each attention head to encode position.  #
+    # The slopes follow a geometric sequence: 2^(-8/num_heads * i)             #
+    # where i goes from 1 to num_heads.                                        #
+    #                                                                           #
+    # For num_heads that are not powers of 2, use a different pattern.         #
+    # Hint: Use torch.pow() and torch.arange()                                #
+    #############################################################################
+    # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+
+    pass
+
+    # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    #############################################################################
+    #                             END OF YOUR CODE                              #
+    #############################################################################
+    
+    return slopes
+
+def create_alibi_bias(seq_len, slopes):
+    """
+    Create ALiBi bias matrix for attention.
+    
+    Inputs:
+    - seq_len: Sequence length
+    - slopes: Tensor of slopes from alibi_slopes()
+    
+    Returns:
+    - bias: Tensor of shape (num_heads, seq_len, seq_len) containing position biases
+    """
+    bias = None
+    
+    #############################################################################
+    # TODO: Create ALiBi bias matrix.                                          #
+    # For each head, create a matrix where bias[h, i, j] = slopes[h] * |i - j| #
+    # The bias is added to attention scores before softmax.                    #
+    #                                                                           #
+    # Hints:                                                                    #
+    # - Compute all pairwise distances |i - j|                                #
+    # - Multiply by slopes using broadcasting                                   #
+    # - The result should be negative (biases typically are)                   #
+    #############################################################################
+    # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+
+    pass
+
+    # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    #############################################################################
+    #                             END OF YOUR CODE                              #
+    #############################################################################
+    
+    return bias

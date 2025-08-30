@@ -1,6 +1,6 @@
 # Deep Learning Practice Assignments
 
-CS231n-style practice assignments for implementing core deep learning techniques from scratch.
+CS231n-style practice assignments for implementing core deep learning techniques using PyTorch.
 
 ## Setup
 
@@ -17,6 +17,7 @@ Run individual assignments:
 ```bash
 python run_assignment.py activation_functions
 python run_assignment.py positional_embeddings
+python run_assignment.py attention_mechanisms
 ```
 
 Run all assignments:
@@ -34,12 +35,15 @@ Each assignment follows the CS231n format:
 
 ## Current Assignments
 
-1. **Activation Functions** - Implement forward/backward passes for common activation functions
-2. **Positional Embeddings** - Implement various positional encoding schemes
+1. **Activation Functions** - Implement forward/backward passes for ReLU, Sigmoid, Tanh, Swish, GELU, ELU
+2. **Positional Embeddings** - Implement Sinusoidal, RoPE, T5 Relative, ALiBi positional encodings
+3. **Attention Mechanisms** - Implement SDPA, MHA, MQA, GQA, MLA attention variants
 
 ## Tips
 
 - Read the docstrings carefully - they contain important implementation details
-- Start with the forward pass, then implement the backward pass
-- Check shapes and numerical stability
+- Use PyTorch tensor operations: `torch.matmul()`, `torch.where()`, `F.softmax()`
+- Check tensor shapes frequently using `.shape`
+- Start with basic functions (SDPA) before complex variants (MLA)
 - Run tests frequently to catch bugs early
+- Use `torch.manual_seed()` for reproducible debugging

@@ -2,7 +2,8 @@
 Test suite for attention mechanisms assignment.
 """
 
-import numpy as np
+import torch
+import torch.nn.functional as F
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def test_function(name, student_func, reference_func, test_cases, tolerance=1e-4
                 reference_out, reference_weights = reference_result
                 
                 # Check output
-                output_error = np.max(np.abs(student_out - reference_out))
+                output_error = torch.max(torch.abs(student_out - reference_out)).item()
                 if output_error > tolerance:
                     print(f"  ❌ Test {i+1}: output error = {output_error:.2e} (tolerance = {tolerance:.2e})")
                     all_passed = False
@@ -43,7 +44,7 @@ def test_function(name, student_func, reference_func, test_cases, tolerance=1e-4
                 
                 # Check attention weights if requested
                 if check_weights and student_weights is not None and reference_weights is not None:
-                    weights_error = np.max(np.abs(student_weights - reference_weights))
+                    weights_error = torch.max(torch.abs(student_weights - reference_weights)).item()
                     if weights_error > tolerance:
                         print(f"  ❌ Test {i+1}: weights error = {weights_error:.2e}")
                         all_passed = False
@@ -53,7 +54,7 @@ def test_function(name, student_func, reference_func, test_cases, tolerance=1e-4
                     print(f"  ✅ Test {i+1}: output_err = {output_error:.2e}")
             else:
                 # Single output comparison
-                error = np.max(np.abs(student_result - reference_result))
+                error = torch.max(torch.abs(student_result - reference_result)).item()
                 if error > tolerance:
                     print(f"  ❌ Test {i+1}: error = {error:.2e} (tolerance = {tolerance:.2e})")
                     all_passed = False
@@ -71,7 +72,7 @@ def test_class_based_attention(name, student_class, reference_class, test_config
     print(f"\nTesting {name}...")
     
     all_passed = True
-    np.random.seed(42)  # For reproducible weight initialization
+    torch.manual_seed(42)  # For reproducible weight initialization
     
     for i, config in enumerate(test_configs):
         try:
@@ -80,24 +81,22 @@ def test_class_based_attention(name, student_class, reference_class, test_config
             reference_attn = reference_class(**config)
             
             # Copy weights from student to reference for fair comparison
-            if hasattr(student_attn, 'W_q'):
-                reference_attn.W_q.weight.data = torch.tensor(student_attn.W_q.T)
-                reference_attn.W_k.weight.data = torch.tensor(student_attn.W_k.T)
-                reference_attn.W_v.weight.data = torch.tensor(student_attn.W_v.T)
-                reference_attn.W_o.weight.data = torch.tensor(student_attn.W_o.T)
+            if hasattr(student_attn, 'W_q') and hasattr(reference_attn, 'W_q'):
+                reference_attn.W_q.weight.data.copy_(student_attn.W_q.weight.data.T)
+                reference_attn.W_k.weight.data.copy_(student_attn.W_k.weight.data.T)
+                reference_attn.W_v.weight.data.copy_(student_attn.W_v.weight.data.T)
+                reference_attn.W_o.weight.data.copy_(student_attn.W_o.weight.data.T)
             
             # Generate test data
             batch_size, seq_len, d_model = 2, 8, config.get('d_model', 64)
             
-            query = np.random.randn(batch_size, seq_len, d_model).astype(np.float32)
-            key = np.random.randn(batch_size, seq_len, d_model).astype(np.float32)
-            value = np.random.randn(batch_size, seq_len, d_model).astype(np.float32)
+            query = torch.randn(batch_size, seq_len, d_model)
+            key = torch.randn(batch_size, seq_len, d_model)
+            value = torch.randn(batch_size, seq_len, d_model)
             
             # Forward pass
             student_result = student_attn.forward(query, key, value, training=False)
-            reference_result = reference_attn(
-                torch.tensor(query), torch.tensor(key), torch.tensor(value), training=False
-            )
+            reference_result = reference_attn(query, key, value, training=False)
             
             if student_result is None or (isinstance(student_result, tuple) and student_result[0] is None):
                 print(f"  ❌ Test {i+1}: Forward pass not implemented")
@@ -107,7 +106,7 @@ def test_class_based_attention(name, student_class, reference_class, test_config
             student_out = student_result[0] if isinstance(student_result, tuple) else student_result
             reference_out = reference_result[0] if isinstance(reference_result, tuple) else reference_result
             
-            error = np.max(np.abs(student_out - reference_out))
+            error = torch.max(torch.abs(student_out - reference_out)).item()
             if error > tolerance:
                 print(f"  ❌ Test {i+1}: error = {error:.2e} (tolerance = {tolerance:.2e})")
                 all_passed = False
@@ -127,7 +126,7 @@ def run_tests():
     print("=" * 60)
     
     # Set seeds for reproducible tests
-    np.random.seed(42)
+    torch.manual_seed(42)
     
     # Test data setup
     batch_size, seq_len_q, seq_len_k, d_k, d_v = 2, 8, 10, 16, 16
@@ -135,16 +134,16 @@ def run_tests():
     # Test cases for SDPA
     sdpa_tests = []
     for i in range(3):
-        query = np.random.randn(batch_size, seq_len_q, d_k).astype(np.float32)
-        key = np.random.randn(batch_size, seq_len_k, d_k).astype(np.float32)
-        value = np.random.randn(batch_size, seq_len_k, d_v).astype(np.float32)
+        query = torch.randn(batch_size, seq_len_q, d_k)
+        key = torch.randn(batch_size, seq_len_k, d_k)
+        value = torch.randn(batch_size, seq_len_k, d_v)
         sdpa_tests.append(((query, key, value), {"training": False}))
     
     # Test with causal mask
-    query = np.random.randn(batch_size, seq_len_q, d_k).astype(np.float32)
-    key = np.random.randn(batch_size, seq_len_q, d_k).astype(np.float32)  # Same length for causal
-    value = np.random.randn(batch_size, seq_len_q, d_v).astype(np.float32)
-    mask = np.tril(np.ones((seq_len_q, seq_len_q)), dtype=bool)
+    query = torch.randn(batch_size, seq_len_q, d_k)
+    key = torch.randn(batch_size, seq_len_q, d_k)  # Same length for causal
+    value = torch.randn(batch_size, seq_len_q, d_v)
+    mask = torch.tril(torch.ones(seq_len_q, seq_len_q), diagonal=0).bool()
     sdpa_tests.append(((query, key, value, mask), {"training": False}))
     
     # Utility function tests
@@ -201,7 +200,7 @@ def run_tests():
         if test_function(name, student_func, reference_func, test_cases, tol, check_weights):
             tests_passed += 1
     
-    # Class-based tests
+    # Class-based tests - only test ones that are likely to be implemented
     class_tests = [
         ("Multi-Head Attention", MultiHeadAttention, MultiHeadAttentionReference, mha_configs),
         ("Multi-Query Attention", MultiQueryAttention, MultiQueryAttentionReference, mqa_configs),
@@ -211,18 +210,21 @@ def run_tests():
     
     for name, student_class, reference_class, configs in class_tests:
         total_tests += 1
-        if test_class_based_attention(name, student_class, reference_class, configs):
-            tests_passed += 1
+        try:
+            if test_class_based_attention(name, student_class, reference_class, configs):
+                tests_passed += 1
+        except Exception as e:
+            print(f"\n❌ {name} test setup failed: {e}")
     
     # Test softmax separately
     print(f"\nTesting Softmax...")
     try:
-        x = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        x = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         student_result = softmax(x)
-        reference_result = torch.nn.functional.softmax(torch.tensor(x), dim=-1).numpy()
+        reference_result = F.softmax(x, dim=-1)
         
         if student_result is not None:
-            error = np.max(np.abs(student_result - reference_result))
+            error = torch.max(torch.abs(student_result - reference_result)).item()
             if error < 1e-6:
                 print(f"  ✅ Softmax: error = {error:.2e}")
                 tests_passed += 1
@@ -248,13 +250,15 @@ def run_tests():
         print("   • Grouped-Query Attention (GQA) - balanced efficiency")
         print("   • Multi-head Latent Attention (MLA) - memory-efficient compression")
         print("   • Attention masking (causal and padding)")
+        print("   • PyTorch tensor operations and efficient implementations")
     else:
         print("❌ Some tests failed. Check your implementation and try again.")
         print("\n💡 Debug tips:")
         print("   • Start with SDPA - it's the foundation for all others")
-        print("   • Check tensor shapes carefully - broadcasting is key")
-        print("   • Verify softmax numerical stability")
-        print("   • MQA/GQA/MLA require careful weight matrix management")
+        print("   • Check tensor shapes carefully - use .shape and print statements")
+        print("   • Use F.softmax() and F.dropout() for reliable implementations")
+        print("   • MQA/GQA/MLA require careful tensor reshaping and broadcasting")
+        print("   • Use torch.tril() for causal masks, torch.arange() for padding")
 
 if __name__ == "__main__":
     run_tests()

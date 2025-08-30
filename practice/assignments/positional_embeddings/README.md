@@ -7,8 +7,9 @@ Implement various positional encoding schemes used in transformer architectures.
 You'll implement the following positional embedding techniques:
 - Sinusoidal Positional Encoding (original Transformer)
 - Learnable/Absolute Positional Embeddings
-- Rotary Position Embedding (RoPE)
+- Rotary Position Embedding (RoPE) - used in LLaMA
 - Relative Position Representation (T5-style)
+- ALiBi (Attention with Linear Biases) - used in BLOOM
 
 ## Files
 
@@ -25,11 +26,11 @@ You'll implement the following positional embedding techniques:
 
 ## Tips
 
-- Use broadcasting effectively for efficient computation
-- Be careful with floating point precision for sin/cos operations
-- RoPE requires understanding of complex number rotations
+- Use PyTorch broadcasting effectively: `torch.arange()`, `torch.outer()`
+- Be careful with tensor shapes and data types (`.long()` for indices)
+- RoPE requires understanding of complex number rotations via even/odd pairs
+- ALiBi uses geometric progressions for attention head slopes
 - Test edge cases like sequence length = 1, even/odd dimensions
-- Visualize the embeddings to debug patterns
 
 ## Mathematical Notes
 

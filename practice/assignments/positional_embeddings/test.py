@@ -2,7 +2,7 @@
 Test suite for positional embeddings assignment.
 """
 
-import numpy as np
+import torch
 import sys
 from pathlib import Path
 
@@ -37,7 +37,7 @@ def test_function(name, student_func, reference_func, test_cases, tolerance=1e-5
                 
                 max_error = 0
                 for j, (s_out, r_out) in enumerate(zip(student_out, reference_out)):
-                    error = np.max(np.abs(s_out - r_out))
+                    error = torch.max(torch.abs(s_out - r_out)).item()
                     max_error = max(max_error, error)
                     
                 if max_error > tolerance:
@@ -53,7 +53,7 @@ def test_function(name, student_func, reference_func, test_cases, tolerance=1e-5
                     all_passed = False
                     continue
                 
-                error = np.max(np.abs(student_out - reference_out))
+                error = torch.max(torch.abs(student_out - reference_out)).item()
                 if error > tolerance:
                     print(f"  ❌ Test {i+1}: error = {error:.2e} (tolerance = {tolerance:.2e})")
                     all_passed = False
@@ -78,7 +78,7 @@ def test_rope_application():
     ]
     
     all_passed = True
-    np.random.seed(42)  # For reproducible tests
+    torch.manual_seed(42)  # For reproducible tests
     
     for i, (seq_len, d_model) in enumerate(test_cases):
         try:
@@ -92,7 +92,7 @@ def test_rope_application():
                 continue
             
             # Test random input
-            x = np.random.randn(2, seq_len, d_model)  # Batch dimension
+            x = torch.randn(2, seq_len, d_model)  # Batch dimension
             
             student_rotated = apply_rope(x, student_cos, student_sin)
             reference_rotated = PositionalEmbeddings.apply_rope(x, reference_cos, reference_sin)
@@ -102,7 +102,7 @@ def test_rope_application():
                 all_passed = False
                 continue
             
-            error = np.max(np.abs(student_rotated - reference_rotated))
+            error = torch.max(torch.abs(student_rotated - reference_rotated)).item()
             if error > 1e-5:
                 print(f"  ❌ Test {i+1}: error = {error:.2e}")
                 all_passed = False
@@ -148,7 +148,7 @@ def test_relative_position_pipeline():
             print(f"  ❌ Relative position embedding lookup not implemented")
             return False
         
-        error = np.max(np.abs(student_embeddings - reference_embeddings))
+        error = torch.max(torch.abs(student_embeddings - reference_embeddings)).item()
         if error > 1e-5:
             print(f"  ❌ Pipeline error = {error:.2e}")
             return False
@@ -160,13 +160,57 @@ def test_relative_position_pipeline():
         print(f"  ❌ Pipeline failed with exception: {e}")
         return False
 
+def test_alibi_pipeline():
+    """Test ALiBi slope and bias generation."""
+    print(f"\nTesting ALiBi Pipeline...")
+    
+    test_cases = [4, 8, 16, 6]  # Include non-power-of-2
+    all_passed = True
+    
+    for i, num_heads in enumerate(test_cases):
+        try:
+            seq_len = 10
+            
+            # Generate slopes
+            student_slopes = alibi_slopes(num_heads)
+            reference_slopes = PositionalEmbeddings.alibi_slopes(num_heads)
+            
+            if student_slopes is None:
+                print(f"  ❌ Test {i+1}: ALiBi slopes not implemented")
+                all_passed = False
+                continue
+            
+            # Create bias
+            student_bias = create_alibi_bias(seq_len, student_slopes)
+            reference_bias = PositionalEmbeddings.create_alibi_bias(seq_len, reference_slopes)
+            
+            if student_bias is None:
+                print(f"  ❌ Test {i+1}: ALiBi bias not implemented")
+                all_passed = False
+                continue
+            
+            slopes_error = torch.max(torch.abs(student_slopes - reference_slopes)).item()
+            bias_error = torch.max(torch.abs(student_bias - reference_bias)).item()
+            
+            if slopes_error > 1e-5 or bias_error > 1e-5:
+                print(f"  ❌ Test {i+1}: slopes_err = {slopes_error:.2e}, bias_err = {bias_error:.2e}")
+                all_passed = False
+            else:
+                print(f"  ✅ Test {i+1}: slopes_err = {slopes_error:.2e}, bias_err = {bias_error:.2e}")
+                
+        except Exception as e:
+            print(f"  ❌ Test {i+1} failed with exception: {e}")
+            all_passed = False
+    
+    return all_passed
+
 def run_tests():
     """Run all positional embedding tests."""
     print("Running Positional Embeddings Tests")
     print("=" * 50)
     
     # Set seeds for reproducible tests
-    np.random.seed(42)
+    torch.manual_seed(42)
     
     # Test cases: (args, kwargs)
     sinusoidal_tests = [
@@ -201,6 +245,12 @@ def run_tests():
         ((16, 8), {"init_std": 0.01}),
     ]
     
+    alibi_slope_tests = [
+        ((4,), {}),
+        ((8,), {}),
+        ((6,), {}),  # Non-power-of-2
+    ]
+    
     tests = [
         ("Sinusoidal PE", sinusoidal_positional_encoding, 
          PositionalEmbeddings.sinusoidal_positional_encoding, sinusoidal_tests),
@@ -212,10 +262,12 @@ def run_tests():
          PositionalEmbeddings.relative_position_encoding, relative_pos_tests),
         ("Relative Embedding Table", create_relative_position_embeddings,
          PositionalEmbeddings.create_relative_position_embeddings, relative_table_tests),
+        ("ALiBi Slopes", alibi_slopes,
+         PositionalEmbeddings.alibi_slopes, alibi_slope_tests),
     ]
     
     passed_tests = 0
-    total_tests = len(tests) + 2  # +2 for special pipeline tests
+    total_tests = len(tests) + 3  # +3 for special pipeline tests
     
     for name, student_func, reference_func, test_cases in tests:
         if test_function(name, student_func, reference_func, test_cases):
@@ -228,14 +280,29 @@ def run_tests():
     if test_relative_position_pipeline():
         passed_tests += 1
     
+    if test_alibi_pipeline():
+        passed_tests += 1
+    
     print(f"\n{'='*50}")
     print(f"Results: {passed_tests}/{total_tests} tests passed")
     print(f"{'='*50}")
     
     if passed_tests == total_tests:
         print("🎉 All tests passed! Great work!")
+        print("\n📝 Key concepts you've implemented:")
+        print("   • Sinusoidal Position Encoding (original Transformer)")
+        print("   • Learnable/Absolute Position Embeddings")
+        print("   • RoPE (Rotary Position Embedding) - LLaMA style")
+        print("   • T5-style Relative Position Encoding")
+        print("   • ALiBi (Attention with Linear Biases) - BLOOM style")
+        print("   • PyTorch tensor operations and broadcasting")
     else:
         print("❌ Some tests failed. Check your implementation and try again.")
+        print("\n💡 Debug tips:")
+        print("   • Use torch.arange(), torch.outer(), torch.broadcast_to()")
+        print("   • Check tensor shapes and data types (.long() for indices)")
+        print("   • RoPE requires careful even/odd dimension handling")
+        print("   • ALiBi slopes follow geometric progression patterns")
 
 if __name__ == "__main__":
     run_tests()

@@ -4,7 +4,6 @@ Reference implementation of positional embeddings using PyTorch.
 
 import torch
 import torch.nn as nn
-import numpy as np
 import math
 
 class PositionalEmbeddings:
@@ -22,7 +21,7 @@ class PositionalEmbeddings:
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         
-        return pe.numpy()
+        return pe
     
     @staticmethod
     def learnable_positional_embedding(seq_len, d_model, init_std=0.02):
@@ -30,7 +29,7 @@ class PositionalEmbeddings:
         # Set seed for reproducible reference
         torch.manual_seed(42)
         pe = torch.normal(0, init_std, size=(seq_len, d_model))
-        return pe.numpy()
+        return pe
     
     @staticmethod
     def rope_positional_encoding(seq_len, d_model, base=10000):
@@ -50,15 +49,11 @@ class PositionalEmbeddings:
         cos_cached = torch.cos(angles).repeat_interleave(2, dim=1)
         sin_cached = torch.sin(angles).repeat_interleave(2, dim=1)
         
-        return cos_cached.numpy(), sin_cached.numpy()
+        return cos_cached, sin_cached
     
     @staticmethod
     def apply_rope(x, cos_cached, sin_cached):
         """Apply RoPE rotation."""
-        x = torch.tensor(x)
-        cos_cached = torch.tensor(cos_cached)
-        sin_cached = torch.tensor(sin_cached)
-        
         # Split into even and odd dimensions
         x_even = x[..., 0::2]  # x[..., [0, 2, 4, ...]]
         x_odd = x[..., 1::2]   # x[..., [1, 3, 5, ...]]
@@ -75,7 +70,7 @@ class PositionalEmbeddings:
         # Interleave back
         x_rot = torch.stack([x_even_rot, x_odd_rot], dim=-1).flatten(-2)
         
-        return x_rot.numpy()
+        return x_rot
     
     @staticmethod  
     def relative_position_encoding(seq_len, max_distance=32):
@@ -89,7 +84,7 @@ class PositionalEmbeddings:
         # Shift to make indices positive (for embedding lookup)
         relative_positions = relative_positions + max_distance
         
-        return relative_positions.numpy()
+        return relative_positions
     
     @staticmethod
     def create_relative_position_embeddings(max_distance, d_model, init_std=0.02):
@@ -97,13 +92,45 @@ class PositionalEmbeddings:
         torch.manual_seed(42)  # For reproducible reference
         num_embeddings = 2 * max_distance + 1
         embeddings = torch.normal(0, init_std, size=(num_embeddings, d_model))
-        return embeddings.numpy()
+        return embeddings
     
     @staticmethod
     def lookup_relative_embeddings(relative_positions, embedding_table):
         """Look up relative embeddings."""
-        relative_positions = torch.tensor(relative_positions, dtype=torch.long)
-        embedding_table = torch.tensor(embedding_table)
-        
+        relative_positions = relative_positions.long()
         embeddings = embedding_table[relative_positions]
-        return embeddings.numpy()
+        return embeddings
+    
+    @staticmethod
+    def alibi_slopes(num_heads):
+        """Generate ALiBi slopes."""
+        def get_slopes_power_of_2(n):
+            start = (2**(-2**-(math.log2(n)-3)))
+            ratio = start
+            return [start*ratio**i for i in range(n)]
+        
+        if math.log2(num_heads).is_integer():
+            slopes = get_slopes_power_of_2(num_heads)
+        else:
+            closest_power_of_2 = 2**math.floor(math.log2(num_heads))
+            slopes = get_slopes_power_of_2(closest_power_of_2)
+            slopes.extend(get_slopes_power_of_2(2*closest_power_of_2)[0::2][:num_heads-closest_power_of_2])
+        
+        return torch.tensor(slopes)
+    
+    @staticmethod
+    def create_alibi_bias(seq_len, slopes):
+        """Create ALiBi bias matrix."""
+        num_heads = len(slopes)
+        
+        # Create distance matrix
+        arange = torch.arange(seq_len)
+        distances = torch.abs(arange[:, None] - arange[None, :])
+        
+        # Apply slopes
+        bias = slopes.view(num_heads, 1, 1) * distances.unsqueeze(0)
+        
+        # Make negative (typical convention)
+        bias = -bias
+        
+        return bias

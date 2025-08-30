@@ -2,7 +2,7 @@
 Test suite for activation functions assignment.
 """
 
-import numpy as np
+import torch
 import sys
 from pathlib import Path
 
@@ -30,14 +30,14 @@ def test_function(name, student_forward, student_backward, reference_forward, re
                 all_passed = False
                 continue
                 
-            forward_error = np.max(np.abs(student_out - reference_out))
+            forward_error = torch.max(torch.abs(student_out - reference_out)).item()
             if forward_error > tolerance:
                 print(f"  ❌ Forward pass test {i+1}: error = {forward_error:.2e} (tolerance = {tolerance:.2e})")
                 all_passed = False
                 continue
             
             # Test backward pass
-            grad_out = np.random.randn(*student_out.shape)
+            grad_out = torch.randn_like(student_out)
             student_grad = student_backward(grad_out, cache)
             reference_grad_val = reference_grad(x, **kwargs)
             
@@ -48,7 +48,7 @@ def test_function(name, student_forward, student_backward, reference_forward, re
                 
             # The reference gradient is for grad_out = ones, so we need to scale
             expected_grad = grad_out * reference_grad_val
-            backward_error = np.max(np.abs(student_grad - expected_grad))
+            backward_error = torch.max(torch.abs(student_grad - expected_grad)).item()
             
             if backward_error > tolerance:
                 print(f"  ❌ Backward pass test {i+1}: error = {backward_error:.2e} (tolerance = {tolerance:.2e})")
@@ -70,10 +70,10 @@ def run_tests():
     
     # Test inputs
     test_inputs = [
-        np.array([1.0, -1.0, 0.0, 2.0, -2.0]),
-        np.array([[1.0, -0.5], [0.0, 2.0]]),
-        np.random.randn(3, 4, 5) * 2,  # Larger random array
-        np.array([-10.0, -1.0, 0.0, 1.0, 10.0]),  # Test extreme values
+        torch.tensor([1.0, -1.0, 0.0, 2.0, -2.0]),
+        torch.tensor([[1.0, -0.5], [0.0, 2.0]]),
+        torch.randn(3, 4, 5) * 2,  # Larger random tensor
+        torch.tensor([-10.0, -1.0, 0.0, 1.0, 10.0]),  # Test extreme values
     ]
     
     tests = [
@@ -91,10 +91,15 @@ def run_tests():
          ActivationFunctions.gelu, ActivationFunctions.gelu_grad),
         ("GELU (approx)", gelu_forward, gelu_backward,
          ActivationFunctions.gelu, ActivationFunctions.gelu_grad, {"approximate": True}),
+        ("ELU", elu_forward, elu_backward,
+         ActivationFunctions.elu, ActivationFunctions.elu_grad),
     ]
     
     passed_tests = 0
     total_tests = len(tests)
+    
+    # Set seed for reproducible tests
+    torch.manual_seed(42)
     
     for test_info in tests:
         if len(test_info) == 6:  # Test with extra kwargs
@@ -113,8 +118,19 @@ def run_tests():
     
     if passed_tests == total_tests:
         print("🎉 All tests passed! Great work!")
+        print("\n📝 Key concepts you've implemented:")
+        print("   • ReLU and variants (Leaky ReLU, ELU)")
+        print("   • Sigmoid and Tanh with numerical stability")
+        print("   • Modern activations (Swish/SiLU, GELU)")
+        print("   • Forward and backward pass implementations")
+        print("   • PyTorch tensor operations and autograd concepts")
     else:
         print("❌ Some tests failed. Check your implementation and try again.")
+        print("\n💡 Debug tips:")
+        print("   • Use torch.where() for conditional operations")
+        print("   • Check tensor shapes and data types")
+        print("   • Be careful with numerical stability in sigmoid/tanh")
+        print("   • Cache the right values for backward pass")
 
 if __name__ == "__main__":
     run_tests()
