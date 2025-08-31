@@ -98,7 +98,7 @@ def softmax(x, axis=-1):
     
     return result
 
-class MultiHeadAttention:
+class MultiHeadAttention(nn.Module):
     """Multi-Head Attention implementation."""
     
     def __init__(self, d_model, num_heads, dropout_p=0.1):
@@ -110,6 +110,7 @@ class MultiHeadAttention:
         - num_heads: Number of attention heads
         - dropout_p: Dropout probability
         """
+        super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         
         self.d_model = d_model
@@ -166,9 +167,22 @@ class MultiHeadAttention:
         # - Remember to handle the mask shape for multiple heads                  #
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        print("MHA query:", query.shape)
+        b, s, d_model = query.shape
+        q = self.W_q(query).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
+        k = self.W_k(key).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
+        v = self.W_v(value).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
 
-        pass
+        x, w = scaled_dot_product_attention(q, k, v, mask=mask, dropout_p=self.dropout_p, training=training)
+        print("MHA x", x.shape)
+        x = x.transpose(1, 2)
+        x = x.reshape(b, s, -1)
+        print("MHA x poset reshape", x.shape)
+        print("MHA w", w.shape)
+        x = self.W_o(x)
 
+        output = x
+        attention_weights = w
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #############################################################################
         #                             END OF YOUR CODE                              #

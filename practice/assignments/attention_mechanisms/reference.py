@@ -43,7 +43,7 @@ class AttentionReference:
                 scores = scores + attn_mask
             attention_weights = F.softmax(scores, dim=-1)
             
-            return output.numpy(), attention_weights.numpy()
+            return output.detach(), attention_weights.detach()
         else:
             # Manual implementation
             d_k = query.size(-1)
@@ -59,7 +59,7 @@ class AttentionReference:
             
             output = torch.matmul(attention_weights, value)
             
-            return output.numpy(), attention_weights.numpy()
+            return output.detach(), attention_weights.detach()
 
 class MultiHeadAttentionReference(nn.Module):
     """PyTorch reference Multi-Head Attention."""
@@ -101,10 +101,10 @@ class MultiHeadAttentionReference(nn.Module):
         
         # Apply attention
         attention_output, attention_weights = AttentionReference.scaled_dot_product_attention(
-            Q.numpy(), K.numpy(), V.numpy(), mask, training=training
+            Q.detach().numpy(), K.detach().numpy(), V.detach().numpy(), mask, training=training
         )
         
-        attention_output = torch.tensor(attention_output)
+        attention_output = attention_output.clone().detach()
         
         # Concatenate heads
         attention_output = attention_output.transpose(1, 2).contiguous().view(
@@ -114,7 +114,7 @@ class MultiHeadAttentionReference(nn.Module):
         # Output projection
         output = self.W_o(attention_output)
         
-        return output.numpy(), attention_weights
+        return output.detach(), attention_weights
 
 class MultiQueryAttentionReference(nn.Module):
     """PyTorch reference Multi-Query Attention."""
@@ -156,10 +156,10 @@ class MultiQueryAttentionReference(nn.Module):
         
         # Apply attention
         attention_output, attention_weights = AttentionReference.scaled_dot_product_attention(
-            Q.numpy(), K.numpy(), V.numpy(), mask, training=training
+            Q.detach().numpy(), K.detach().numpy(), V.detach().numpy(), mask, training=training
         )
         
-        attention_output = torch.tensor(attention_output)
+        attention_output = attention_output.clone().detach()
         
         # Concatenate heads
         attention_output = attention_output.transpose(1, 2).contiguous().view(
@@ -169,7 +169,7 @@ class MultiQueryAttentionReference(nn.Module):
         # Output projection
         output = self.W_o(attention_output)
         
-        return output.numpy(), attention_weights
+        return output.detach(), attention_weights
 
 class GroupedQueryAttentionReference(nn.Module):
     """PyTorch reference Grouped-Query Attention."""
@@ -217,10 +217,10 @@ class GroupedQueryAttentionReference(nn.Module):
         
         # Apply attention
         attention_output, attention_weights = AttentionReference.scaled_dot_product_attention(
-            Q.numpy(), K.numpy(), V.numpy(), mask, training=training
+            Q.detach().numpy(), K.detach().numpy(), V.detach().numpy(), mask, training=training
         )
         
-        attention_output = torch.tensor(attention_output)
+        attention_output = attention_output.clone().detach()
         
         # Concatenate heads
         attention_output = attention_output.transpose(1, 2).contiguous().view(
@@ -230,7 +230,7 @@ class GroupedQueryAttentionReference(nn.Module):
         # Output projection
         output = self.W_o(attention_output)
         
-        return output.numpy(), attention_weights
+        return output.detach(), attention_weights
 
 class MultiHeadLatentAttentionReference(nn.Module):
     """PyTorch reference Multi-head Latent Attention."""
@@ -278,10 +278,10 @@ class MultiHeadLatentAttentionReference(nn.Module):
         
         # Apply attention
         attention_output, attention_weights = AttentionReference.scaled_dot_product_attention(
-            Q.numpy(), K.numpy(), V.numpy(), mask, training=training
+            Q.detach().numpy(), K.detach().numpy(), V.detach().numpy(), mask, training=training
         )
         
-        attention_output = torch.tensor(attention_output)
+        attention_output = attention_output.clone().detach()
         
         # Concatenate heads
         attention_output = attention_output.transpose(1, 2).contiguous().view(
@@ -291,7 +291,7 @@ class MultiHeadLatentAttentionReference(nn.Module):
         # Output projection
         output = self.W_o(attention_output)
         
-        return output.numpy(), attention_weights
+        return output.detach(), attention_weights
 
 class UtilityFunctions:
     """Utility functions for attention mechanisms."""
@@ -300,11 +300,11 @@ class UtilityFunctions:
     def create_causal_mask(seq_len):
         """Create causal attention mask."""
         mask = torch.tril(torch.ones(seq_len, seq_len, dtype=torch.bool))
-        return mask.numpy()
+        return mask
     
     @staticmethod
     def create_padding_mask(seq_lengths, max_len):
         """Create padding mask for variable sequences."""
         batch_size = len(seq_lengths)
         mask = torch.arange(max_len)[None, :] < torch.tensor(seq_lengths)[:, None]
-        return mask.numpy()
+        return mask
