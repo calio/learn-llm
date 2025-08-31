@@ -15,14 +15,12 @@ You'll implement the following positional embedding techniques:
 
 - `skeleton.py` - **Your implementation goes here**
 - `reference.py` - PyTorch reference implementation  
-- `test.py` - Test suite comparing your implementation with reference
-
 ## Instructions
 
 1. Open `skeleton.py` and implement the TODO sections
 2. Each function should handle variable sequence lengths and embedding dimensions
 3. Pay attention to the mathematical formulations in the docstrings
-4. Run `python test.py` to check your implementation
+4. Run `python ../../run_assignment.py positional_embeddings` to check your implementation
 
 ## Tips
 

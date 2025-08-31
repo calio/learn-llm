@@ -15,15 +15,13 @@ You'll implement the following attention variants:
 
 - `skeleton.py` - **Your implementation goes here**
 - `reference.py` - PyTorch reference implementation
-- `test.py` - Test suite comparing your implementation with reference
-
 ## Instructions
 
 1. Open `skeleton.py` and implement the TODO sections
 2. Start with SDPA, then build up to more complex variants
 3. Pay careful attention to tensor shapes and broadcasting
 4. Implement both forward pass and attention weight computation
-5. Run `python test.py` to check your implementation
+5. Run `python ../../run_assignment.py attention_mechanisms` to check your implementation
 
 ## Tips
 

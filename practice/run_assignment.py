@@ -21,12 +21,23 @@ def run_assignment(assignment_name):
     print(f"{'='*50}")
     
     try:
-        test_module = importlib.import_module(f"assignments.{assignment_name}.test")
-        test_module.run_tests()
-        print(f"\n✅ Assignment '{assignment_name}' completed successfully!")
-        return True
+        # Use the unified test runner
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_runner import TestRunner
+        
+        runner = TestRunner(stop_on_failure=True)
+        success = runner.run_assignment_tests(assignment_name)
+        
+        if success:
+            print(f"\n✅ Assignment '{assignment_name}' completed successfully!")
+            return True
+        else:
+            print(f"\n❌ Assignment '{assignment_name}' failed!")
+            return False
     except Exception as e:
         print(f"\n❌ Assignment '{assignment_name}' failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def list_assignments():

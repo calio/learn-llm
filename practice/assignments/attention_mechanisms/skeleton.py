@@ -50,8 +50,16 @@ def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, tr
     # - For dropout, use F.dropout() if training                             #
     #############################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    d_k = query.shape[-1]
+    print("Q", query.shape, "key.T", key.transpose(-1, -2).shape)
+    x = torch.matmul(query, key.transpose(-1, -2))
+    x = x / math.sqrt(d_k)
+    print("x", x.shape)
+    w = torch.softmax(x, -1)
+    print("w after softmax", w.shape)
+    attention_weights = w
+    output = torch.matmul(w, value)
 
-    pass
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     #############################################################################

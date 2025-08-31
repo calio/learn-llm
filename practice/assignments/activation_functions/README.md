@@ -14,14 +14,12 @@ You'll implement the following activation functions from scratch:
 
 - `skeleton.py` - **Your implementation goes here**
 - `reference.py` - PyTorch reference implementation
-- `test.py` - Test suite comparing your implementation with reference
-
 ## Instructions
 
 1. Open `skeleton.py` and implement the TODO sections
 2. Each function should return both the forward pass result and cache for backward pass
 3. Implement corresponding backward pass functions
-4. Run `python test.py` to check your implementation
+4. Run `python ../../run_assignment.py activation_functions` to check your implementation
 
 ## Tips
 

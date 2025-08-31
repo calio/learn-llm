@@ -25,6 +25,12 @@ Run all assignments:
 python run_assignment.py all
 ```
 
+Or use the unified test runner directly:
+```bash
+python test_runner.py activation_functions
+python test_runner.py all
+```
+
 ## Assignment Structure
 
 Each assignment follows the CS231n format:
