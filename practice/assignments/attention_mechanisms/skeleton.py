@@ -352,7 +352,29 @@ class GroupedQueryAttention:
         #############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        q = self.W_q(query)
+        k = self.W_k(key)
+        v = self.W_v(value)
+
+        b, s, d_model = query.shape
+        q = q.view(b, s, self.num_query_heads, self.d_k).transpose(1, 2)
+        k = k.view(b, s, self.num_kv_heads, self.d_kv).transpose(1, 2)
+        v = v.view(b, s, self.num_kv_heads, self.d_kv).transpose(1, 2)
+        # b, num_kv, s, d_kv
+
+        k = torch.repeat_interleave(k, self.group_size, dim=1)
+        v = torch.repeat_interleave(v, self.group_size, dim=1)
+
+        x, w = scaled_dot_product_attention(q, k, v, mask=mask, dropout_p=self.dropout_p, training=training)
+        print("MHA x", x.shape)
+        x = x.transpose(1, 2)
+        x = x.reshape(b, s, -1)
+        print("MHA x poset reshape", x.shape)
+        print("MHA w", w.shape)
+        x = self.W_o(x)
+
+        output = x
+        attention_weights = w
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #############################################################################
