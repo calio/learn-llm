@@ -1,4 +1,5 @@
 # Imports
+from dataclasses import dataclass
 import glob
 import argparse
 
@@ -88,9 +89,65 @@ class DistributedDataLoader:
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.advance()
         return x, y
+    
+
+@dataclass
+class GPT2Config:
+    n_vocab: int = 50257
+    n_ctx: int = 1024
+    n_embd: int = 768
+    n_head: int = 12
+    n_layer: int = 12
+
+def block():
+    pass
+
 # Model Definition
+class GPT2(nn.Module):
+    def __init__(self, vocab_size=GPT2Config.n_vocab):
+        super(GPT2, self).__init__()
+        self.linear = nn.Linear(GPT2Config.n_embd, vocab_size)
+        self.embed = nn.Embedding(vocab_size, GPT2Config.n_embd)
+
+    def forward(self, x):
+        #print("[gpt2] x shape:", x.shape)
+        B, T = x.shape
+        x = self.embed(x) # (B, T, n_embd)
+        x = self.linear(x) # (B, T, 8)
+        return x
+    
 
 # Training Loop
+def train(args, model, data_loader):
+    epochs = args.epochs
+    lr = args.lr
+    B = args.batch_size
+    T = args.seq_length
+    iterations = data_loader.ntok_total // (B * T * args.num_processes)
+
+    ce_loss = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    print("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+    for epoch in range(epochs):
+        for it in range(iterations):
+            x, y = data_loader.next_batch()
+            #print("y", y.shape)
+
+            pred = model(x)
+            #print("pred", pred.shape)
+            loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+
+            # e.g., forward pass, loss computation, backward pass, optimizer step
+            if it % 50 == 0:
+                print(f"{epoch=}, {it=}, {loss.item()=:.4f}")
+
+
+    
 # Evaluation Metrics
 # Save and Load Model
 
@@ -99,6 +156,9 @@ def parse_args():
     parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to input binary data file.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
     parser.add_argument("--seq_length", type=int, default=64, help="Sequence length.")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
+    parser.add_argument("--num_processes", type=int, default=1, help="Number of processes for distributed data loading.")
     
     args = parser.parse_args()
     return args
@@ -113,9 +173,8 @@ def main():
         num_processes=1,
     )
     
-    x, y = loader.next_batch()
-    print("x:", x.shape)
-    print("y:", y.shape)
+    model = GPT2()
+    train(args, model, loader)
 
 
 if __name__ == "__main__":
