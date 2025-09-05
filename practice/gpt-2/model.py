@@ -2,10 +2,11 @@
 from dataclasses import dataclass
 import glob
 import argparse
+import math
 
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 
@@ -99,21 +100,261 @@ class GPT2Config:
     n_head: int = 12
     n_layer: int = 12
 
-def block():
-    pass
+def create_positional_encoding2(seq_len, d_model):
+    pe = torch.zeros(seq_len, d_model)
+    
+    # Create position indices [0, 1, 2, ..., seq_len-1]
+    position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+    
+    # Create dimension indices [0, 2, 4, ..., d_model-2]
+    div_term = torch.exp(torch.arange(0, d_model, 2).float() * 
+                        -(torch.log(torch.tensor(10000.0)) / d_model))
+    
+    # Apply sin to even indices
+    pe[:, 0::2] = torch.sin(position * div_term)
+    
+    # Apply cos to odd indices
+    pe[:, 1::2] = torch.cos(position * div_term)
+    
+    return pe
+
+def sinusoidal_positional_embedding(seq_len, d_model):
+    # My implementation of sinusoidal positional embedding, needs validation
+    pe = torch.zeros(seq_len, d_model)
+    position = torch.arange(0, seq_len).unsqueeze(-1)
+    div_term = torch.pow(torch.tensor(10000.0), torch.arange(0, d_model, 2).float() / d_model)
+
+    print("position:", position.shape, "div_term", div_term.shape)
+    pe[:, 0::2] = torch.sin(position.float() / div_term)
+    pe[:, 1::2] = torch.cos(position.float() / div_term)
+    return pe
+
+
+def test_positional_encodings():
+    """Test function to compare the two positional encoding implementations."""
+    seq_len = 100
+    d_model = 768
+    
+    # Generate embeddings with both functions
+    pe1 = sinusoidal_positional_embedding(seq_len, d_model)
+    pe2 = create_positional_encoding2(seq_len, d_model)
+    
+    # Check if they're close (allowing for small numerical differences)
+    are_close = torch.allclose(pe1, pe2, atol=1e-6)
+    
+    # Calculate maximum absolute difference
+    max_diff = torch.max(torch.abs(pe1 - pe2)).item()
+    
+    print(f"Positional encodings are close: {are_close}")
+    print(f"Maximum absolute difference: {max_diff:.8f}")
+    print(f"Shape of embeddings: {pe1.shape}")
+    
+    # Test with different dimensions
+    for test_seq_len in [10, 50, 512]:
+        for test_d_model in [64, 256, 768]:
+            pe1_test = sinusoidal_positional_embedding(test_seq_len, test_d_model)
+            pe2_test = create_positional_encoding2(test_seq_len, test_d_model)
+            close = torch.allclose(pe1_test, pe2_test, atol=1e-6)
+            max_diff_test = torch.max(torch.abs(pe1_test - pe2_test)).item()
+            print(f"seq_len={test_seq_len}, d_model={test_d_model}: close={close}, max_diff={max_diff_test:.8f}")
+    
+    return are_close
+
+def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, training=True):
+    """
+    Scaled Dot-Product Attention (SDPA) - the core attention mechanism.
+    
+    Inputs:
+    - query: Query tensor of shape (..., seq_len_q, d_k)
+    - key: Key tensor of shape (..., seq_len_k, d_k)
+    - value: Value tensor of shape (..., seq_len_k, d_v)
+    - mask: Optional attention mask of shape (..., seq_len_q, seq_len_k)
+           where True/1 means positions to attend to, False/0 means mask out
+    - dropout_p: Dropout probability for attention weights
+    - training: Whether in training mode (affects dropout)
+    
+    Returns:
+    - output: Attention output of shape (..., seq_len_q, d_v)
+    - attention_weights: Attention weights of shape (..., seq_len_q, seq_len_k)
+    """
+    output = None
+    attention_weights = None
+    
+    #############################################################################
+    # TODO: Implement Scaled Dot-Product Attention.                            #
+    # Formula: Attention(Q,K,V) = softmax(QK^T / sqrt(d_k))V                  #
+    #                                                                           #
+    # Steps:                                                                    #
+    # 1. Compute attention scores: Q @ K^T                                     #
+    # 2. Scale by sqrt(d_k) for numerical stability                           #
+    # 3. Apply mask (set masked positions to large negative value)            #
+    # 4. Apply softmax to get attention weights                               #
+    # 5. Apply dropout if training                                             #
+    # 6. Compute output: attention_weights @ V                                #
+    #                                                                           #
+    # Hints:                                                                    #
+    # - Use torch.matmul() or @ for matrix multiplication                     #
+    # - For masking, use torch.where() with a large negative value (-1e9)    #
+    # - Use F.softmax() or implement your own with torch.exp()               #
+    # - For dropout, use F.dropout() if training                             #
+    #############################################################################
+    # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    d_k = query.shape[-1]
+    #print("Q", query.shape, "key.T", key.transpose(-1, -2).shape)
+    x = torch.matmul(query, key.transpose(-1, -2))
+    x = x / math.sqrt(d_k)
+    #print("x", x.shape)
+    w = torch.softmax(x, -1)
+    #print("w after softmax", w.shape)
+    attention_weights = w
+    output = torch.matmul(w, value)
+
+
+    # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    #############################################################################
+    #                             END OF YOUR CODE                              #
+    #############################################################################
+    
+    return output, attention_weights
+
+
+class MultiHeadAttention(nn.Module):
+    """Multi-Head Attention implementation."""
+    
+    def __init__(self, d_model, num_heads, dropout_p=0.1):
+        """
+        Initialize Multi-Head Attention.
+        
+        Args:
+        - d_model: Model dimension
+        - num_heads: Number of attention heads
+        - dropout_p: Dropout probability
+        """
+        super().__init__()
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.dropout_p = dropout_p
+        
+        # Initialize weight matrices as nn.Linear layers
+        self.W_q = nn.Linear(d_model, d_model, bias=False)
+        self.W_k = nn.Linear(d_model, d_model, bias=False)
+        self.W_v = nn.Linear(d_model, d_model, bias=False)
+        self.W_o = nn.Linear(d_model, d_model, bias=False)
+        
+        # Initialize with Xavier uniform
+        self._init_weights()
+        
+    def _init_weights(self):
+        """Initialize weights with Xavier/Glorot uniform initialization."""
+        for layer in [self.W_q, self.W_k, self.W_v, self.W_o]:
+            nn.init.xavier_uniform_(layer.weight)
+    
+    def forward(self, query, key, value, mask=None, training=True):
+        """
+        Forward pass for Multi-Head Attention.
+        
+        Inputs:
+        - query: Query tensor of shape (batch_size, seq_len_q, d_model)
+        - key: Key tensor of shape (batch_size, seq_len_k, d_model)
+        - value: Value tensor of shape (batch_size, seq_len_k, d_model)
+        - mask: Optional mask tensor
+        - training: Training mode flag
+        
+        Returns:
+        - output: Output tensor of shape (batch_size, seq_len_q, d_model)
+        - attention_weights: Attention weights for visualization
+        """
+        output = None
+        attention_weights = None
+        
+        #############################################################################
+        # TODO: Implement Multi-Head Attention forward pass.                       #
+        #                                                                           #
+        # Steps:                                                                    #
+        # 1. Apply linear transformations to get Q, K, V                          #
+        # 2. Reshape and transpose to separate heads:                             #
+        #    (batch_size, seq_len, d_model) -> (batch_size, num_heads, seq_len, d_k) #
+        # 3. Apply scaled dot-product attention for each head                      #
+        # 4. Concatenate heads back together                                       #
+        # 5. Apply output projection                                               #
+        #                                                                           #
+        # Hints:                                                                    #
+        # - Use tensor.view() and tensor.transpose() for tensor manipulation     #
+        # - Call scaled_dot_product_attention() for the core computation         #
+        # - Remember to handle the mask shape for multiple heads                  #
+        #############################################################################
+        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        #print("MHA query:", query.shape)
+        b, s, d_model = query.shape
+        q = self.W_q(query).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
+        k = self.W_k(key).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
+        v = self.W_v(value).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
+
+        x, w = scaled_dot_product_attention(q, k, v, mask=mask, dropout_p=self.dropout_p, training=training)
+        #print("MHA x", x.shape)
+        x = x.transpose(1, 2)
+        x = x.reshape(b, s, -1)
+        #print("MHA x poset reshape", x.shape)
+        #print("MHA w", w.shape)
+        x = self.W_o(x)
+
+        output = x
+        attention_weights = w
+        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        #############################################################################
+        #                             END OF YOUR CODE                              #
+        #############################################################################
+        
+        return output, attention_weights
+    
+class block(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mha = MultiHeadAttention(GPT2Config.n_embd, GPT2Config.n_head)
+        self.norm1 = nn.LayerNorm(GPT2Config.n_embd)
+        self.norm2 = nn.LayerNorm(GPT2Config.n_embd)
+        self.ff = nn.Sequential(
+            nn.Linear(GPT2Config.n_embd, 4 * GPT2Config.n_embd),
+            nn.GELU(),
+            nn.Linear(4 * GPT2Config.n_embd, GPT2Config.n_embd),
+        )
+
+
+    def forward(self, x):
+        x0 = x
+        x = self.mha(x, x, x)[0]
+        x = self.norm1(x + x0)
+
+        x0 = x
+        x = self.ff(x)
+        x = self.norm2(x + x0)
+        return x
+
 
 # Model Definition
 class GPT2(nn.Module):
     def __init__(self, vocab_size=GPT2Config.n_vocab):
         super(GPT2, self).__init__()
-        self.linear = nn.Linear(GPT2Config.n_embd, vocab_size)
+        self.ouput_linear = nn.Linear(GPT2Config.n_embd, vocab_size)
         self.embed = nn.Embedding(vocab_size, GPT2Config.n_embd)
+        self.pos_embed = nn.Embedding(GPT2Config.n_ctx, GPT2Config.n_embd)
+        self.blocks = nn.ModuleList([block() for _ in range(GPT2Config.n_layer)])
+        
 
     def forward(self, x):
         #print("[gpt2] x shape:", x.shape)
         B, T = x.shape
         x = self.embed(x) # (B, T, n_embd)
-        x = self.linear(x) # (B, T, 8)
+        x = x + self.pos_embed(torch.arange(T)).unsqueeze(0) # x + (1, T, embed)
+        #x = self.linear(x) # (B, T, 8)
+        for i in range(GPT2Config.n_layer):
+            # Here you would typically apply transformer blocks, but for simplicity, we just pass through
+            x = self.blocks[i](x)
+        x = self.ouput_linear(x) # (B, T, vocab_size)
+        x = F.softmax(x, dim=-1)
         return x
     
 
@@ -165,6 +406,12 @@ def parse_args():
 
 def main():
     args = parse_args()
+    
+    # Run positional encoding test
+    #print("Testing positional encoding implementations...")
+    #test_positional_encodings()
+    #print("-" * 50)
+    
     loader = DistributedDataLoader(
         "/Users/calio/code/llm.c/dev/data/tinyshakespeare/tiny_shakespeare_val.bin",
         B=args.batch_size,
