@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
+from tqdm import tqdm
 
 
 
@@ -400,7 +401,10 @@ def train(args, model, data_loader):
 
     print("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
     for epoch in range(epochs):
-        for it in range(iterations):
+        # Create progress bar for current epoch
+        pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True)
+        
+        for it in pbar:
             x, y = data_loader.next_batch()
             x, y = x.to(device), y.to(device)
             #print("x", x.shape, "y", y.shape)
@@ -412,10 +416,12 @@ def train(args, model, data_loader):
             loss.backward()
             optimizer.step()
 
+            # Update progress bar with loss information
+            pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-            # e.g., forward pass, loss computation, backward pass, optimizer step
-            if it % 50 == 0:
-                print(f"{epoch=}, {it=}, {loss.item()=:.4f}")
+            ## e.g., forward pass, loss computation, backward pass, optimizer step
+            #if it % 50 == 0:
+            #    print(f"{epoch=}, {it=}, {loss.item()=:.4f}")
 
 
     
