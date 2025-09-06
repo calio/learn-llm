@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from tqdm import tqdm
+import wandb
 
 
 
@@ -385,6 +386,35 @@ class GPT2(nn.Module):
         return x
     
 
+def validate(args, model, data_loader):
+    model.eval()
+    device = get_device()
+
+    with torch.no_grad():
+        val_losses = []
+        ce_loss = nn.CrossEntropyLoss()
+        iterations = data_loader.ntok_total // (args.batch_size * args.seq_length * args.num_processes)
+        for it in range(iterations):
+            x, y = data_loader.next_batch()
+            x, y = x.to(device), y.to(device)
+            pred = model(x)
+            loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
+            val_losses.append(loss.item())
+        avg_val_loss = sum(val_losses) / len(val_losses)
+        print(f"Validation Loss: {avg_val_loss:.4f}")
+
+    model.train()
+    return avg_val_loss
+
+def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
+    model.eval()
+    device = get_device()
+
+    for _ in range(max_new_tokens):
+        pass
+
+    
+        
 # Training Loop
 def train(args, model, data_loader):
     epochs = args.epochs
@@ -399,7 +429,11 @@ def train(args, model, data_loader):
     ce_loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+    val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)
+
     print("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+    
+    global_step = 0
     for epoch in range(epochs):
         # Create progress bar for current epoch
         pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True)
@@ -418,10 +452,31 @@ def train(args, model, data_loader):
 
             # Update progress bar with loss information
             pbar.set_postfix(loss=f"{loss.item():.4f}")
+            
+            # Log training metrics to wandb
+            if args.wandb:
+                wandb.log({
+                    "train/loss": loss.item(),
+                    "train/epoch": epoch + 1,
+                    "train/learning_rate": lr,
+                    "train/step": global_step
+                }, step=global_step)
+            
+            global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
             #if it % 50 == 0:
             #    print(f"{epoch=}, {it=}, {loss.item()=:.4f}")
+
+        # Validation at the end of each epoch
+        val_loss = validate(args, model, val_loader)
+        
+        # Log validation metrics to wandb
+        if args.wandb:
+            wandb.log({
+                "val/loss": val_loss,
+                "val/epoch": epoch + 1
+            }, step=global_step)
 
 
     
@@ -431,17 +486,49 @@ def train(args, model, data_loader):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a simple transformer model.")
     parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_train.bin", help="Path to input binary data file.")
+    parser.add_argument("--input_val_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to validation binary data file.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
     parser.add_argument("--seq_length", type=int, default=GPT2Config.n_ctx, help="Sequence length.")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--num_processes", type=int, default=1, help="Number of processes for distributed data loading.")
     
+    # Wandb arguments
+    parser.add_argument("--no_wandb", action="store_true", help="Disable Weights & Biases logging.")
+    parser.add_argument("--wandb_project", type=str, default="gpt-2", help="Wandb project name.")
+    parser.add_argument("--wandb_entity", type=str, default=None, help="Wandb entity (team/user name).")
+    parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb run name.")
+    
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
+    
+    # Wandb is enabled by default, unless --no_wandb is specified
+    args.wandb = not args.no_wandb
+    
+    # Initialize wandb if enabled
+    if args.wandb:
+        run = wandb.init(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            name=args.wandb_run_name,
+            config={
+                "batch_size": args.batch_size,
+                "seq_length": args.seq_length,
+                "epochs": args.epochs,
+                "learning_rate": args.lr,
+                "num_processes": args.num_processes,
+                "vocab_size": GPT2Config.n_vocab,
+                "n_ctx": GPT2Config.n_ctx,
+                "n_embd": GPT2Config.n_embd,
+                "n_head": GPT2Config.n_head,
+                "n_layer": GPT2Config.n_layer,
+            }
+        )
+        print(f"✅ Initialized wandb project: {args.wandb_project}")
+        print(f"🔗 Run URL: {run.get_url()}")
     
     # Run positional encoding test
     #print("Testing positional encoding implementations...")
@@ -457,7 +544,16 @@ def main():
     )
     
     model = GPT2()
+    
+    # Log model summary if wandb is enabled
+    if args.wandb:
+        wandb.watch(model, log="all", log_freq=10)
+    
     train(args, model, loader)
+    
+    # Finish wandb run
+    if args.wandb:
+        wandb.finish()
 
 
 if __name__ == "__main__":
