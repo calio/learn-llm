@@ -337,19 +337,22 @@ class block(nn.Module):
         self.norm2 = nn.LayerNorm(GPT2Config.n_embd)
         self.ff = nn.Sequential(
             nn.Linear(GPT2Config.n_embd, 4 * GPT2Config.n_embd),
-            nn.GELU(),
+            nn.GELU(approximate='tanh'),
             nn.Linear(4 * GPT2Config.n_embd, GPT2Config.n_embd),
         )
 
 
     def forward(self, x):
         x0 = x
+        x = self.norm1(x)
         x = self.mha(x, x, x, mask=self.mask)[0]
-        x = self.norm1(x + x0)
+        x = x + x0
+
 
         x0 = x
+        x = self.norm2(x)
         x = self.ff(x)
-        x = self.norm2(x + x0)
+        x = x + x0
         return x
 
 
@@ -361,6 +364,7 @@ class GPT2(nn.Module):
         self.embed = nn.Embedding(vocab_size, GPT2Config.n_embd)
         self.pos_embed = nn.Embedding(GPT2Config.n_ctx, GPT2Config.n_embd)
         self.blocks = nn.ModuleList([block() for _ in range(GPT2Config.n_layer)])
+        self.ln = nn.LayerNorm(GPT2Config.n_embd)
         
 
     def forward(self, x):
@@ -374,6 +378,7 @@ class GPT2(nn.Module):
         for i in range(GPT2Config.n_layer):
             # Here you would typically apply transformer blocks, but for simplicity, we just pass through
             x = self.blocks[i](x)
+        x = self.ln(x)
         x = self.output_linear(x) # (B, T, vocab_size)
         #x = F.softmax(x, dim=-1)
         return x
@@ -419,7 +424,7 @@ def train(args, model, data_loader):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a simple transformer model.")
-    parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to input binary data file.")
+    parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_train.bin", help="Path to input binary data file.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
     parser.add_argument("--seq_length", type=int, default=GPT2Config.n_ctx, help="Sequence length.")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
@@ -438,7 +443,7 @@ def main():
     #print("-" * 50)
     
     loader = DistributedDataLoader(
-        "/Users/calio/code/llm.c/dev/data/tinyshakespeare/tiny_shakespeare_val.bin",
+        args.input_bin,
         B=args.batch_size,
         T=args.seq_length,
         process_rank=0,
