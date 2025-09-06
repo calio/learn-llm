@@ -12,6 +12,14 @@ import numpy as np
 
 
 
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+    
 # Data Loader
 def _peek_data_shard(filename):
     # only reads the header, returns header data
@@ -203,6 +211,14 @@ def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, tr
     #print("Q", query.shape, "key.T", key.transpose(-1, -2).shape)
     x = torch.matmul(query, key.transpose(-1, -2))
     x = x / math.sqrt(d_k)
+
+    if mask is not None:
+        #print("mask", mask.shape)
+        #print("x before mask", x.shape)
+        # Apply the mask: set masked positions to a large negative value
+        x = x.masked_fill(~mask, float('-inf'))
+        #x = torch.where(mask, x, torch.tensor(-torch.inf, device=x.device))
+
     #print("x", x.shape)
     w = torch.softmax(x, -1)
     #print("w after softmax", w.shape)
@@ -313,6 +329,9 @@ class MultiHeadAttention(nn.Module):
 class block(nn.Module):
     def __init__(self):
         super().__init__()
+        # Register mask as a buffer so it moves with the model to the correct device
+        self.register_buffer('mask', torch.tril(torch.ones(GPT2Config.n_ctx, GPT2Config.n_ctx, dtype=torch.bool)))
+
         self.mha = MultiHeadAttention(GPT2Config.n_embd, GPT2Config.n_head)
         self.norm1 = nn.LayerNorm(GPT2Config.n_embd)
         self.norm2 = nn.LayerNorm(GPT2Config.n_embd)
@@ -325,7 +344,7 @@ class block(nn.Module):
 
     def forward(self, x):
         x0 = x
-        x = self.mha(x, x, x)[0]
+        x = self.mha(x, x, x, mask=self.mask)[0]
         x = self.norm1(x + x0)
 
         x0 = x
@@ -338,7 +357,7 @@ class block(nn.Module):
 class GPT2(nn.Module):
     def __init__(self, vocab_size=GPT2Config.n_vocab):
         super(GPT2, self).__init__()
-        self.ouput_linear = nn.Linear(GPT2Config.n_embd, vocab_size)
+        self.output_linear = nn.Linear(GPT2Config.n_embd, vocab_size)
         self.embed = nn.Embedding(vocab_size, GPT2Config.n_embd)
         self.pos_embed = nn.Embedding(GPT2Config.n_ctx, GPT2Config.n_embd)
         self.blocks = nn.ModuleList([block() for _ in range(GPT2Config.n_layer)])
@@ -347,14 +366,16 @@ class GPT2(nn.Module):
     def forward(self, x):
         #print("[gpt2] x shape:", x.shape)
         B, T = x.shape
+        device = x.device  # Get device from input tensor
         x = self.embed(x) # (B, T, n_embd)
-        x = x + self.pos_embed(torch.arange(T)).unsqueeze(0) # x + (1, T, embed)
+        pos = torch.arange(T, device=device)  # Create position tensor on same device
+        x = x + self.pos_embed(pos)  # No need for unsqueeze(0), broadcasting handles it
         #x = self.linear(x) # (B, T, 8)
         for i in range(GPT2Config.n_layer):
             # Here you would typically apply transformer blocks, but for simplicity, we just pass through
             x = self.blocks[i](x)
-        x = self.ouput_linear(x) # (B, T, vocab_size)
-        x = F.softmax(x, dim=-1)
+        x = self.output_linear(x) # (B, T, vocab_size)
+        #x = F.softmax(x, dim=-1)
         return x
     
 
@@ -366,6 +387,9 @@ def train(args, model, data_loader):
     T = args.seq_length
     iterations = data_loader.ntok_total // (B * T * args.num_processes)
 
+    device = get_device()
+    model = model.to(device)
+
     ce_loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -373,7 +397,8 @@ def train(args, model, data_loader):
     for epoch in range(epochs):
         for it in range(iterations):
             x, y = data_loader.next_batch()
-            #print("y", y.shape)
+            x, y = x.to(device), y.to(device)
+            #print("x", x.shape, "y", y.shape)
 
             pred = model(x)
             #print("pred", pred.shape)
@@ -396,7 +421,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train a simple transformer model.")
     parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to input binary data file.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
-    parser.add_argument("--seq_length", type=int, default=64, help="Sequence length.")
+    parser.add_argument("--seq_length", type=int, default=GPT2Config.n_ctx, help="Sequence length.")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--num_processes", type=int, default=1, help="Number of processes for distributed data loading.")
