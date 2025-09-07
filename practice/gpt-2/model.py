@@ -469,7 +469,7 @@ def generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens
     model.train()
     return generated_text
 
-def validate(args, model, data_loader):
+def validate(args, model, data_loader, world_size=1, rank=0):
     # Handle wrapped models (DDP, DataParallel) for eval mode
     if hasattr(model, 'module'):
         model.module.eval()
@@ -481,14 +481,32 @@ def validate(args, model, data_loader):
         val_losses = []
         ce_loss = nn.CrossEntropyLoss()
         iterations = data_loader.ntok_total // (args.batch_size * args.seq_length * args.num_processes)
-        for it in range(iterations):
+        
+        # Each process handles a subset of validation iterations
+        process_iterations = iterations // world_size
+        start_iter = rank * process_iterations
+        end_iter = start_iter + process_iterations if rank < world_size - 1 else iterations
+        
+        for it in range(start_iter, end_iter):
             x, y = data_loader.next_batch()
             x, y = x.to(device), y.to(device)
             pred = model(x)
             loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
             val_losses.append(loss.item())
-        avg_val_loss = sum(val_losses) / len(val_losses)
-        print(f"Validation Loss: {avg_val_loss:.4f}")
+        
+        # Compute local average
+        local_avg_val_loss = sum(val_losses) / len(val_losses) if val_losses else 0.0
+        
+        # Aggregate across all processes if distributed
+        if world_size > 1 and hasattr(torch.distributed, 'all_reduce'):
+            loss_tensor = torch.tensor(local_avg_val_loss, device=device)
+            torch.distributed.all_reduce(loss_tensor, op=torch.distributed.ReduceOp.AVG)
+            avg_val_loss = loss_tensor.item()
+        else:
+            avg_val_loss = local_avg_val_loss
+        
+        if rank == 0:  # Only print from main process
+            print0(f"Validation Loss: {avg_val_loss:.4f}")
 
     # Handle wrapped models for train mode
     if hasattr(model, 'module'):
@@ -588,30 +606,45 @@ def train(args, model, data_loader):
                     "train/step": global_step
                 }, step=global_step)
             # Run validation every eval_every iterations
-            if global_step % args.eval_every == 0 and is_main_process:
-                val_loss = validate(args, model, val_loader)
-                generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
+            if global_step % args.eval_every == 0:
+                # Synchronize all processes before validation
+                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                    torch.distributed.barrier()
                 
-                # Write to log file
-                os.makedirs(run_output_dir, exist_ok=True)
-                log_path = os.path.join(run_output_dir, "train.log")
-                with open(log_path, "a") as f:
-                    f.write(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}\n")
-                    f.write(f"Generated: {generated_text}\n")
-                    f.write("-" * 80 + "\n")
+                # Run validation on all processes now
+                val_loss = validate(args, model, val_loader, world_size=int(os.environ.get('WORLD_SIZE', 1)), rank=int(os.environ.get('LOCAL_RANK', 0)))
                 
-                print0(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}")
-                print0(f"Generated: {generated_text}")
+                if is_main_process:
+                    generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
+                    
+                    # Write to log file
+                    os.makedirs(run_output_dir, exist_ok=True)
+                    log_path = os.path.join(run_output_dir, "train.log")
+                    with open(log_path, "a") as f:
+                        f.write(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}\n")
+                        f.write(f"Generated: {generated_text}\n")
+                        f.write("-" * 80 + "\n")
+                    
+                    print0(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}")
+                    print0(f"Generated: {generated_text}")
+                    
+                    if args.wandb:
+                        wandb.log({
+                            "val/loss": val_loss,
+                            "val/epoch": epoch + 1,
+                            "generated_text": generated_text
+                        }, step=global_step)
                 
-                if args.wandb:
-                    wandb.log({
-                        "val/loss": val_loss,
-                        "val/epoch": epoch + 1,
-                        "generated_text": generated_text
-                    }, step=global_step)
+                # Synchronize all processes after validation
+                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                    torch.distributed.barrier()
 
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
+                # Synchronize before checkpoint saving
+                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                    torch.distributed.barrier()
+                
                 os.makedirs(run_output_dir, exist_ok=True)
                 checkpoint_path = os.path.join(run_output_dir, f"checkpoint_iter_{global_step}.pt")
                 if is_main_process:
@@ -622,6 +655,10 @@ def train(args, model, data_loader):
                         'epoch': epoch
                     }, checkpoint_path)
                     print0(f"Checkpoint saved: {checkpoint_path}")
+                
+                # Synchronize after checkpoint saving
+                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                    torch.distributed.barrier()
             global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
@@ -630,9 +667,10 @@ def train(args, model, data_loader):
 
 
         
+        # Validation at the end of each epoch on all processes
+        val_loss = validate(args, model, val_loader, world_size=int(os.environ.get('WORLD_SIZE', 1)), rank=int(os.environ.get('LOCAL_RANK', 0)))
+        
         if is_main_process:
-            # Validation at the end of each epoch
-            val_loss = validate(args, model, val_loader)
             
             # Log validation metrics to wandb (end of epoch)
             if args.wandb:
