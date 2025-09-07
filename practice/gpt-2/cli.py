@@ -13,7 +13,12 @@ from typing import Optional
 
 # Add current directory to path to import model
 sys.path.append(os.path.dirname(__file__))
-from model import GPT2, GPT2Config
+try:
+    from model import GPT2, GPT2Config
+except ImportError as e:
+    print(f"❌ Error importing model: {e}")
+    print("Make sure model.py is in the same directory as cli.py")
+    sys.exit(1)
 
 class ModelCLI:
     def __init__(self, checkpoint_path: str, device: str = "auto"):

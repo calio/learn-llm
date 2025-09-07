@@ -6,6 +6,7 @@ import math
 import datetime
 import time
 import os
+import sys
 import functools
 
 import torch
@@ -17,14 +18,7 @@ from tqdm import tqdm
 import wandb
 import tiktoken
 
-# Import Muon optimizer support
-from kernels import get_kernel
-optimizer_kernel = get_kernel("motif-technologies/optimizer")
-
-# Import FSDP for Muon optimizer
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload
-from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+# Import FSDP for distributed training
 
 
 def print0(*args, **kwargs):
@@ -876,19 +870,27 @@ def main():
             # Use FSDP for Muon optimizer or when explicitly requested
             if args.optimizer == "muon" or args.use_fsdp:
                 print0("Using FSDP (Fully Sharded Data Parallel)")
-                # FSDP auto wrap policy for transformer blocks
-                auto_wrap_policy = functools.partial(
-                    transformer_auto_wrap_policy,
-                    transformer_layer_cls={block}  # Our transformer block class
-                )
-                model = FSDP(
-                    model.to(device),
-                    auto_wrap_policy=auto_wrap_policy,
-                    mixed_precision=None,  # Can be configured for fp16/bf16
-                    device_id=args.local_rank,
-                    sync_module_states=True,
-                    param_init_fn=None,
-                )
+                try:
+                    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+                    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+                    
+                    # FSDP auto wrap policy for transformer blocks
+                    auto_wrap_policy = functools.partial(
+                        transformer_auto_wrap_policy,
+                        transformer_layer_cls={block}  # Our transformer block class
+                    )
+                    model = FSDP(
+                        model.to(device),
+                        auto_wrap_policy=auto_wrap_policy,
+                        mixed_precision=None,  # Can be configured for fp16/bf16
+                        device_id=args.local_rank,
+                        sync_module_states=True,
+                        param_init_fn=None,
+                    )
+                except ImportError as e:
+                    print0(f"❌ Error: Could not import FSDP: {e}")
+                    print0("FSDP requires PyTorch >= 1.12. Falling back to DDP.")
+                    model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
             else:
                 print0("Using DDP (Distributed Data Parallel)")
                 model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
@@ -904,12 +906,19 @@ def main():
     lr = args.lr
     if args.optimizer == "muon":
         print0(f"Using Muon optimizer with lr={lr}, momentum={args.momentum}, weight_decay={args.weight_decay}")
-        optimizer = optimizer_kernel.Muon(
-            model,  # Pass the model directly, not model.parameters()
-            lr=lr,
-            momentum=args.momentum,
-            weight_decay=args.weight_decay,
-        )
+        try:
+            from kernels import get_kernel
+            optimizer_kernel = get_kernel("motif-technologies/optimizer")
+            optimizer = optimizer_kernel.Muon(
+                model,  # Pass the model directly, not model.parameters()
+                lr=lr,
+                momentum=args.momentum,
+                weight_decay=args.weight_decay,
+            )
+        except ImportError as e:
+            print0(f"❌ Error: Could not import Muon optimizer kernel: {e}")
+            print0("Make sure the kernels package is installed and available.")
+            sys.exit(1)
     else:
         print0(f"Using Adam optimizer with lr={lr}, weight_decay={args.weight_decay}")
         optimizer = torch.optim.Adam(
