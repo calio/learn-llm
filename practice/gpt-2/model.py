@@ -527,8 +527,8 @@ def train(args, model, data_loader):
             if is_main_process:
                 if hasattr(pbar, 'set_postfix'):
                     pbar.set_postfix(loss=f"{loss.item():.4f}")
-            # Log training metrics to wandb
-            if is_main_process and args.wandb:
+            # Log training metrics to wandb only at eval_every frequency
+            if global_step % args.eval_every == 0 and is_main_process and args.wandb:
                 wandb.log({
                     "train/loss": loss.item(),
                     "train/epoch": epoch + 1,
@@ -538,11 +538,27 @@ def train(args, model, data_loader):
             # Run validation every eval_every iterations
             if global_step % args.eval_every == 0 and is_main_process:
                 val_loss = validate(args, model, val_loader)
+                generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
+                
+                # Write to log file
+                import os
+                os.makedirs(args.output_dir, exist_ok=True)
+                log_path = os.path.join(args.output_dir, "train.log")
+                with open(log_path, "a") as f:
+                    f.write(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}\n")
+                    f.write(f"Generated: {generated_text}\n")
+                    f.write("-" * 80 + "\n")
+                
+                print(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}")
+                print(f"Generated: {generated_text}")
+                
                 if args.wandb:
                     wandb.log({
                         "val/loss": val_loss,
-                        "val/epoch": epoch + 1
+                        "val/epoch": epoch + 1,
+                        "generated_text": generated_text
                     }, step=global_step)
+
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
                 import os
@@ -565,21 +581,13 @@ def train(args, model, data_loader):
 
         
         if is_main_process:
-            generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
-            print(f"Generated: {generated_text}")
-
             # Validation at the end of each epoch
             val_loss = validate(args, model, val_loader)
             
-            # Log validation metrics to wandb
+            # Log validation metrics to wandb (end of epoch)
             if args.wandb:
-                import os
-                os.makedirs(args.output_dir, exist_ok=True)
-                log_path = os.path.join(args.output_dir, "train.log")
-                with open(log_path, "a") as f:
-                    f.write(f"Epoch {epoch+1}, Step {global_step}, Val Loss: {val_loss}\n")
                 wandb.log({
-                    "val/loss": val_loss,
+                    "val/loss_epoch_end": val_loss,
                     "val/epoch": epoch + 1
                 }, step=global_step)
 
@@ -606,7 +614,7 @@ def parse_args():
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb run name.")
     # Add eval_every argument
     parser.add_argument("--eval_every", type=int, default=100, help="How often (in iterations) to run validation.")
-    parser.add_argument("--save_every", type=int, default=5000, help="How often (in iterations) to save a checkpoint.")
+    parser.add_argument("--save_every", type=int, default=500, help="How often (in iterations) to save a checkpoint.")
     parser.add_argument("--output_dir", type=str, default="output", help="Directory to store checkpoints and logs.")
     args = parser.parse_args()
     return args
@@ -656,9 +664,9 @@ def main():
     
     model = GPT2()
     
-    # Log model summary if wandb is enabled
+    # Log model summary if wandb is enabled (no gradients/params to reduce overhead)
     if is_main_process and args.wandb:
-        wandb.watch(model, log="all", log_freq=10)
+        wandb.watch(model, log=None)
     
     if torch.cuda.device_count() > 1:
         import torch.distributed as dist
