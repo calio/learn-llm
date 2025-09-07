@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 # Add the current directory to path so we can import your model
 sys.path.append(os.path.dirname(__file__))
-from model import GPT
+from model import GPT2, GPT2Config
 
 # -----------------------------------------------------------------------------
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), "hellaswag_data")
@@ -92,15 +92,16 @@ def evaluate(checkpoint_path, device):
     print(f"Loading checkpoint from {checkpoint_path}")
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     
-    # Extract model config and state
-    model_config = checkpoint['model_config']
-    print(f"Model config: {model_config}")
+    # Create model config (your checkpoints don't save config, so we use default GPT-2 config)
+    from model import GPT2Config
+    model_config = GPT2Config()
+    print(f"Using default model config: n_vocab={model_config.n_vocab}, n_ctx={model_config.n_ctx}, n_embd={model_config.n_embd}, n_head={model_config.n_head}, n_layer={model_config.n_layer}")
     
-    # Create model with your GPT class
-    model = GPT(model_config)
+    # Create model with your GPT2 class (not GPT)
+    model = GPT2()
     
     # Load the state dict (handle FSDP wrapped models)
-    state_dict = checkpoint['model']
+    state_dict = checkpoint['model_state_dict']
     # Remove FSDP wrapper prefixes if they exist
     cleaned_state_dict = {}
     for key, value in state_dict.items():
@@ -113,6 +114,7 @@ def evaluate(checkpoint_path, device):
     model.eval()
     
     print(f"Model loaded from step {checkpoint.get('step', 'unknown')}")
+    print(f"Model parameters: {sum(p.numel() for p in model.parameters())} total")
     
     # Optional: compile for faster inference
     # model = torch.compile(model)
