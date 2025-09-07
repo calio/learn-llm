@@ -530,7 +530,26 @@ def train(args, model, data_loader):
                     "train/learning_rate": lr,
                     "train/step": global_step
                 }, step=global_step)
-            
+            # Run validation every eval_every iterations
+            if global_step % args.eval_every == 0:
+                val_loss = validate(args, model, val_loader)
+                if args.wandb:
+                    wandb.log({
+                        "val/loss": val_loss,
+                        "val/epoch": epoch + 1
+                    }, step=global_step)
+            # Save checkpoint every save_every iterations
+            if global_step % args.save_every == 0:
+                import os
+                os.makedirs(args.output_dir, exist_ok=True)
+                checkpoint_path = os.path.join(args.output_dir, f"checkpoint_iter_{global_step}.pt")
+                torch.save({
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'step': global_step,
+                    'epoch': epoch
+                }, checkpoint_path)
+                print(f"Checkpoint saved: {checkpoint_path}")
             global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
@@ -548,6 +567,11 @@ def train(args, model, data_loader):
         
         # Log validation metrics to wandb
         if args.wandb:
+            import os
+            os.makedirs(args.output_dir, exist_ok=True)
+            log_path = os.path.join(args.output_dir, "train.log")
+            with open(log_path, "a") as f:
+                f.write(f"Epoch {epoch+1}, Step {global_step}, Val Loss: {val_loss}\n")
             wandb.log({
                 "val/loss": val_loss,
                 "val/epoch": epoch + 1
@@ -573,7 +597,10 @@ def parse_args():
     parser.add_argument("--wandb_project", type=str, default="gpt-2", help="Wandb project name.")
     parser.add_argument("--wandb_entity", type=str, default=None, help="Wandb entity (team/user name).")
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb run name.")
-    
+    # Add eval_every argument
+    parser.add_argument("--eval_every", type=int, default=100, help="How often (in iterations) to run validation.")
+    parser.add_argument("--save_every", type=int, default=5000, help="How often (in iterations) to save a checkpoint.")
+    parser.add_argument("--output_dir", type=str, default="output", help="Directory to store checkpoints and logs.")
     args = parser.parse_args()
     return args
 
