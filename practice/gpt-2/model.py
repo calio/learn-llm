@@ -484,6 +484,8 @@ def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
         
 # Training Loop
 def train(args, model, data_loader):
+    is_main_process = (not hasattr(args, 'local_rank') or args.local_rank == 0)
+
     epochs = args.epochs
     lr = args.lr
     B = args.batch_size
@@ -504,26 +506,25 @@ def train(args, model, data_loader):
     
     global_step = 0
     for epoch in range(epochs):
-        # Create progress bar for current epoch
-        pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True)
-        
+        # Only show progress bar in main process
+        if is_main_process:
+            pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True)
+        else:
+            pbar = range(iterations)
         for it in pbar:
             x, y = data_loader.next_batch()
             x, y = x.to(device), y.to(device)
-            #print("x", x.shape, "y", y.shape)
-
             pred = model(x)
-            #print("pred", pred.shape)
             loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
             # Update progress bar with loss information
-            pbar.set_postfix(loss=f"{loss.item():.4f}")
-            
+            if is_main_process:
+                if hasattr(pbar, 'set_postfix'):
+                    pbar.set_postfix(loss=f"{loss.item():.4f}")
             # Log training metrics to wandb
-            if args.wandb:
+            if is_main_process and args.wandb:
                 wandb.log({
                     "train/loss": loss.item(),
                     "train/epoch": epoch + 1,
@@ -531,7 +532,7 @@ def train(args, model, data_loader):
                     "train/step": global_step
                 }, step=global_step)
             # Run validation every eval_every iterations
-            if global_step % args.eval_every == 0:
+            if global_step % args.eval_every == 0 and is_main_process:
                 val_loss = validate(args, model, val_loader)
                 if args.wandb:
                     wandb.log({
@@ -543,13 +544,14 @@ def train(args, model, data_loader):
                 import os
                 os.makedirs(args.output_dir, exist_ok=True)
                 checkpoint_path = os.path.join(args.output_dir, f"checkpoint_iter_{global_step}.pt")
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'step': global_step,
-                    'epoch': epoch
-                }, checkpoint_path)
-                print(f"Checkpoint saved: {checkpoint_path}")
+                if is_main_process:
+                    torch.save({
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'step': global_step,
+                        'epoch': epoch
+                    }, checkpoint_path)
+                    print(f"Checkpoint saved: {checkpoint_path}")
             global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
@@ -558,24 +560,24 @@ def train(args, model, data_loader):
 
 
         
-        generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
-        print(f"Generated: {generated_text}") 
+        if is_main_process:
+            generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
+            print(f"Generated: {generated_text}")
 
-        # Validation at the end of each epoch
-
-        val_loss = validate(args, model, val_loader)
-        
-        # Log validation metrics to wandb
-        if args.wandb:
-            import os
-            os.makedirs(args.output_dir, exist_ok=True)
-            log_path = os.path.join(args.output_dir, "train.log")
-            with open(log_path, "a") as f:
-                f.write(f"Epoch {epoch+1}, Step {global_step}, Val Loss: {val_loss}\n")
-            wandb.log({
-                "val/loss": val_loss,
-                "val/epoch": epoch + 1
-            }, step=global_step)
+            # Validation at the end of each epoch
+            val_loss = validate(args, model, val_loader)
+            
+            # Log validation metrics to wandb
+            if args.wandb:
+                import os
+                os.makedirs(args.output_dir, exist_ok=True)
+                log_path = os.path.join(args.output_dir, "train.log")
+                with open(log_path, "a") as f:
+                    f.write(f"Epoch {epoch+1}, Step {global_step}, Val Loss: {val_loss}\n")
+                wandb.log({
+                    "val/loss": val_loss,
+                    "val/epoch": epoch + 1
+                }, step=global_step)
 
 
     
@@ -608,11 +610,13 @@ def parse_args():
 def main():
     args = parse_args()
     
+    is_main_process = (not hasattr(args, 'local_rank') or args.local_rank == 0)
+
     # Wandb is enabled by default, unless --no_wandb is specified
     args.wandb = not args.no_wandb
     
     # Initialize wandb if enabled
-    if args.wandb:
+    if is_main_process and args.wandb:
         run = wandb.init(
             entity=args.wandb_entity,
             project=args.wandb_project,
