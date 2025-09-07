@@ -143,15 +143,17 @@ def convert_checkpoint_to_hf(checkpoint_path, output_dir, push_to_hub=False, rep
         if f'{block_prefix}.norm1.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.ln_1.bias'] = cleaned_state_dict[f'{block_prefix}.norm1.bias']
         
-        # Attention weights
+        # Attention weights (need to transpose)
         if f'{block_prefix}.mha.c_attn.weight' in cleaned_state_dict:
-            hf_state_dict[f'{hf_block_prefix}.attn.c_attn.weight'] = cleaned_state_dict[f'{block_prefix}.mha.c_attn.weight']
+            # Transpose from [3*n_embd, n_embd] to [n_embd, 3*n_embd] for HF
+            hf_state_dict[f'{hf_block_prefix}.attn.c_attn.weight'] = cleaned_state_dict[f'{block_prefix}.mha.c_attn.weight'].t()
         if f'{block_prefix}.mha.c_attn.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.attn.c_attn.bias'] = cleaned_state_dict[f'{block_prefix}.mha.c_attn.bias']
         
-        # Attention projection
+        # Attention projection (need to transpose)
         if f'{block_prefix}.mha.c_proj.weight' in cleaned_state_dict:
-            hf_state_dict[f'{hf_block_prefix}.attn.c_proj.weight'] = cleaned_state_dict[f'{block_prefix}.mha.c_proj.weight']
+            # Transpose from [n_embd, n_embd] to [n_embd, n_embd] - this one might not need transpose, let's check
+            hf_state_dict[f'{hf_block_prefix}.attn.c_proj.weight'] = cleaned_state_dict[f'{block_prefix}.mha.c_proj.weight'].t()
         if f'{block_prefix}.mha.c_proj.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.attn.c_proj.bias'] = cleaned_state_dict[f'{block_prefix}.mha.c_proj.bias']
         
@@ -161,14 +163,16 @@ def convert_checkpoint_to_hf(checkpoint_path, output_dir, push_to_hub=False, rep
         if f'{block_prefix}.norm2.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.ln_2.bias'] = cleaned_state_dict[f'{block_prefix}.norm2.bias']
         
-        # MLP weights
+        # MLP weights (need to transpose)
         if f'{block_prefix}.ff_up.weight' in cleaned_state_dict:
-            hf_state_dict[f'{hf_block_prefix}.mlp.c_fc.weight'] = cleaned_state_dict[f'{block_prefix}.ff_up.weight']
+            # Transpose from [4*n_embd, n_embd] to [n_embd, 4*n_embd] for HF
+            hf_state_dict[f'{hf_block_prefix}.mlp.c_fc.weight'] = cleaned_state_dict[f'{block_prefix}.ff_up.weight'].t()
         if f'{block_prefix}.ff_up.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.mlp.c_fc.bias'] = cleaned_state_dict[f'{block_prefix}.ff_up.bias']
         
         if f'{block_prefix}.ff_down.weight' in cleaned_state_dict:
-            hf_state_dict[f'{hf_block_prefix}.mlp.c_proj.weight'] = cleaned_state_dict[f'{block_prefix}.ff_down.weight']
+            # Transpose from [n_embd, 4*n_embd] to [4*n_embd, n_embd] for HF
+            hf_state_dict[f'{hf_block_prefix}.mlp.c_proj.weight'] = cleaned_state_dict[f'{block_prefix}.ff_down.weight'].t()
         if f'{block_prefix}.ff_down.bias' in cleaned_state_dict:
             hf_state_dict[f'{hf_block_prefix}.mlp.c_proj.bias'] = cleaned_state_dict[f'{block_prefix}.ff_down.bias']
     
