@@ -18,22 +18,13 @@ import wandb
 import tiktoken
 
 # Import Muon optimizer support
-try:
-    from kernels import get_kernel
-    optimizer_kernel = get_kernel("motif-technologies/optimizer")
-    MUON_AVAILABLE = True
-except ImportError:
-    print("Warning: Muon optimizer not available. Install with: pip install git+https://github.com/motif-technologies/optimizer.git")
-    MUON_AVAILABLE = False
+from kernels import get_kernel
+optimizer_kernel = get_kernel("motif-technologies/optimizer")
 
 # Import FSDP for Muon optimizer
-try:
-    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-    from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload
-    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
-    FSDP_AVAILABLE = True
-except ImportError:
-    FSDP_AVAILABLE = False
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 
 
 def print0(*args, **kwargs):
@@ -794,7 +785,7 @@ def main():
             dist.init_process_group(backend='nccl', init_method='env://')
             
             # Use FSDP for Muon optimizer or when explicitly requested
-            if (args.optimizer == "muon" or args.use_fsdp) and FSDP_AVAILABLE:
+            if args.optimizer == "muon" or args.use_fsdp:
                 print0("Using FSDP (Fully Sharded Data Parallel)")
                 # FSDP auto wrap policy for transformer blocks
                 auto_wrap_policy = functools.partial(
@@ -822,17 +813,15 @@ def main():
     # Create optimizer after model wrapping (important for FSDP + Muon)
     print0("Creating optimizer...")
     lr = args.lr
-    if args.optimizer == "muon" and MUON_AVAILABLE:
+    if args.optimizer == "muon":
         print0(f"Using Muon optimizer with lr={lr}, momentum={args.momentum}, weight_decay={args.weight_decay}")
         optimizer = optimizer_kernel.Muon(
-            model.parameters(),
+            model,  # Pass the model directly, not model.parameters()
             lr=lr,
             momentum=args.momentum,
             weight_decay=args.weight_decay,
         )
     else:
-        if args.optimizer == "muon" and not MUON_AVAILABLE:
-            print0("Muon optimizer requested but not available, falling back to Adam")
         print0(f"Using Adam optimizer with lr={lr}, weight_decay={args.weight_decay}")
         optimizer = torch.optim.Adam(
             model.parameters(), 
