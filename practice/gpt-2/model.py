@@ -66,8 +66,12 @@ class DistributedDataLoader:
         ntok_total = 0
         for fname in self.files:
             shard_ntok = _peek_data_shard(fname)
-            assert shard_ntok >= num_processes * B * T + 1
+            if shard_ntok < num_processes * B * T + 1:
+                print(f"WARNING: Data shard {fname} has only {shard_ntok} tokens, which is less than required ({num_processes * B * T + 1}). Skipping this shard.")
+                continue
             ntok_total += shard_ntok
+        if ntok_total == 0:
+            raise ValueError(f"No valid data shards found for pattern {filename_pattern} with batch_size={B}, seq_length={T}, num_processes={num_processes}.")
         self.ntok_total = ntok_total
         print(f"DataLoader: total number of tokens: {ntok_total:,} across {len(self.files)} files")
 
