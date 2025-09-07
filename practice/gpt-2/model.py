@@ -653,7 +653,7 @@ def main():
     model = GPT2()
     
     # Log model summary if wandb is enabled
-    if args.wandb:
+    if is_main_process and args.wandb:
         wandb.watch(model, log="all", log_freq=10)
     
     if torch.cuda.device_count() > 1:
