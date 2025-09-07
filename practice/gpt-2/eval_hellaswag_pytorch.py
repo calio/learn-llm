@@ -100,13 +100,17 @@ def evaluate(checkpoint_path, device):
     # Create model with your GPT2 class (not GPT)
     model = GPT2()
     
-    # Load the state dict (handle FSDP wrapped models)
+    # Load the state dict (handle FSDP/DDP/DataParallel wrapped models)
     state_dict = checkpoint['model_state_dict']
-    # Remove FSDP wrapper prefixes if they exist
+    # Remove wrapper prefixes if they exist
     cleaned_state_dict = {}
     for key, value in state_dict.items():
-        # Remove _fsdp_wrapped_module. prefix if it exists
-        clean_key = key.replace('_fsdp_wrapped_module.', '')
+        # Remove common wrapper prefixes
+        clean_key = key
+        if clean_key.startswith('_fsdp_wrapped_module.'):
+            clean_key = clean_key.replace('_fsdp_wrapped_module.', '')
+        if clean_key.startswith('module.'):
+            clean_key = clean_key.replace('module.', '')
         cleaned_state_dict[clean_key] = value
     
     model.load_state_dict(cleaned_state_dict)
