@@ -608,7 +608,7 @@ def train(args, model, data_loader):
             # Run validation every eval_every iterations
             if global_step % args.eval_every == 0:
                 # Synchronize all processes before validation
-                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                if hasattr(model, 'module') and torch.distributed.is_initialized():
                     torch.distributed.barrier()
                 
                 # Run validation on all processes now
@@ -636,13 +636,13 @@ def train(args, model, data_loader):
                         }, step=global_step)
                 
                 # Synchronize all processes after validation
-                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                if hasattr(model, 'module') and torch.distributed.is_initialized():
                     torch.distributed.barrier()
 
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
                 # Synchronize before checkpoint saving
-                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                if hasattr(model, 'module') and torch.distributed.is_initialized():
                     torch.distributed.barrier()
                 
                 os.makedirs(run_output_dir, exist_ok=True)
@@ -657,7 +657,7 @@ def train(args, model, data_loader):
                     print0(f"Checkpoint saved: {checkpoint_path}")
                 
                 # Synchronize after checkpoint saving
-                if hasattr(model, 'module') and hasattr(torch.distributed, 'barrier'):
+                if hasattr(model, 'module') and torch.distributed.is_initialized():
                     torch.distributed.barrier()
             global_step += 1
 
@@ -701,8 +701,8 @@ def parse_args():
     parser.add_argument("--wandb_entity", type=str, default=None, help="Wandb entity (team/user name).")
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb run name.")
     # Add eval_every argument
-    parser.add_argument("--eval_every", type=int, default=100, help="How often (in iterations) to run validation.")
-    parser.add_argument("--save_every", type=int, default=500, help="How often (in iterations) to save a checkpoint.")
+    parser.add_argument("--eval_every", type=int, default=200, help="How often (in iterations) to run validation.")
+    parser.add_argument("--save_every", type=int, default=1000, help="How often (in iterations) to save a checkpoint.")
     parser.add_argument("--output_dir", type=str, default="output", help="Directory to store checkpoints and logs.")
     args = parser.parse_args()
     return args
@@ -768,8 +768,8 @@ def main():
         import torch.distributed as dist
         if args.local_rank != -1:
             torch.cuda.set_device(args.local_rank)
-            dist.init_process_group(backend='nccl')
             device = torch.device('cuda', args.local_rank)
+            dist.init_process_group(backend='nccl', init_method='env://')
             model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
         else:
             device = torch.device('cuda')
