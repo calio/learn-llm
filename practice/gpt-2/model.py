@@ -3,7 +3,9 @@ from dataclasses import dataclass
 import glob
 import argparse
 import math
+import datetime
 import time
+import os
 
 import torch
 import torch.nn as nn
@@ -17,7 +19,6 @@ import tiktoken
 
 def print0(*args, **kwargs):
     """Print only from rank 0 process"""
-    import os
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     if local_rank == 0:
         print(*args, **kwargs)
@@ -496,10 +497,10 @@ def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
         
 # Training Loop
 def train(args, model, data_loader):
-    is_main_process = (not hasattr(args, 'local_rank') or args.local_rank == 0)
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    is_main_process = (local_rank == 0)
 
     # Create run directory with timestamp or wandb run name
-    import datetime
     if hasattr(args, 'wandb_run_name') and args.wandb_run_name:
         run_dir = args.wandb_run_name
     else:
@@ -510,7 +511,8 @@ def train(args, model, data_loader):
     run_output_dir = os.path.join(args.output_dir, run_dir)
     if is_main_process:
         os.makedirs(run_output_dir, exist_ok=True)
-        print0(f"Outputs will be saved to: {run_output_dir}")
+
+    print0(f"Outputs will be saved to: {run_output_dir}")
 
     epochs = args.epochs
     lr = args.lr
@@ -519,27 +521,22 @@ def train(args, model, data_loader):
     iterations = data_loader.ntok_total // (B * T * args.num_processes)
 
     device = get_device()
-    if is_main_process:
-        print0("Moving model to device...")
+    print0("Moving model to device...")
     model = model.to(device)
 
-    if is_main_process:
-        print0("Creating loss function and optimizer...")
+    print0("Creating loss function and optimizer...")
     ce_loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    if is_main_process:
-        print0("Creating validation data loader...")
+    print0("Creating validation data loader...")
     val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)  # Validation always single process
     
-    if is_main_process:
-        print0("Loading tokenizer...")
+    print0("Loading tokenizer...")
     tokenizer = tiktoken.get_encoding("gpt2")
 
-    if is_main_process:
-        print0("device:", device)
-        print0("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
-        print0("Starting training loop...")
+    print0("device:", device)
+    print0("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+    print0("Starting training loop...")
     
     global_step = 0
     step_start_time = None
@@ -559,25 +556,12 @@ def train(args, model, data_loader):
                 tokens_per_sec = 0.0
             step_start_time = time.time()
             
-            if is_main_process and it == 0:
-                print0("Loading first batch...")
             x, y = data_loader.next_batch()
-            if is_main_process and it == 0:
-                print0(f"Batch loaded. Shape: x={x.shape}, y={y.shape}")
-                print0("Moving batch to device...")
             x, y = x.to(device), y.to(device)
-            if is_main_process and it == 0:
-                print0("Running forward pass...")
             pred = model(x)
-            if is_main_process and it == 0:
-                print0("Computing loss...")
             loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
-            if is_main_process and it == 0:
-                print0("Running backward pass...")
             optimizer.zero_grad()
             loss.backward()
-            if is_main_process and it == 0:
-                print0("Optimizer step...")
             optimizer.step()
             
             # Update progress bar with loss and tokens/sec information
@@ -598,7 +582,6 @@ def train(args, model, data_loader):
                 generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
                 
                 # Write to log file
-                import os
                 os.makedirs(run_output_dir, exist_ok=True)
                 log_path = os.path.join(run_output_dir, "train.log")
                 with open(log_path, "a") as f:
@@ -618,7 +601,6 @@ def train(args, model, data_loader):
 
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
-                import os
                 os.makedirs(run_output_dir, exist_ok=True)
                 checkpoint_path = os.path.join(run_output_dir, f"checkpoint_iter_{global_step}.pt")
                 if is_main_process:
@@ -677,7 +659,6 @@ def parse_args():
     return args
 
 def main():
-    import os
     args = parse_args()
     
     # Determine if we're in distributed mode
@@ -736,7 +717,6 @@ def main():
     
     if torch.cuda.device_count() > 1:
         import torch.distributed as dist
-        import os
         if args.local_rank != -1:
             torch.cuda.set_device(args.local_rank)
             dist.init_process_group(backend='nccl')
