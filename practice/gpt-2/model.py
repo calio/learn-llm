@@ -237,7 +237,7 @@ def scaled_dot_product_attention(query, key, value, mask=None, dropout_p=0.0, tr
 
 
 class MultiHeadAttention(nn.Module):
-    """Multi-Head Attention implementation."""
+    """Multi-Head Attention implementation matching gpt2_kapathy.py structure."""
     
     def __init__(self, d_model, num_heads, dropout_p=0.1):
         """
@@ -256,14 +256,12 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_model // num_heads
         self.dropout_p = dropout_p
         
-        # Initialize weight matrices as nn.Linear layers
-        self.W_q = nn.Linear(d_model, d_model, bias=False)
-        self.W_k = nn.Linear(d_model, d_model, bias=False)
-        self.W_v = nn.Linear(d_model, d_model, bias=False)
-        self.W_o = nn.Linear(d_model, d_model, bias=False)
-        
-        # Initialize with Xavier uniform
-        self._init_weights()
+        # Combined Q,K,V projection like gpt2_kapathy.py c_attn
+        self.c_attn = nn.Linear(d_model, 3 * d_model)  # bias=True by default
+        # Output projection like gpt2_kapathy.py c_proj  
+        self.c_proj = nn.Linear(d_model, d_model)  # bias=True by default
+        # Mark output projection for special scaling
+        self.c_proj.LLMC_RESIDUAL_SCALE_FLAG = 1
         
     def _init_weights(self):
         """Initialize weights with Xavier/Glorot uniform initialization."""
@@ -272,11 +270,11 @@ class MultiHeadAttention(nn.Module):
     
     def forward(self, query, key, value, mask=None, training=True):
         """
-        Forward pass for Multi-Head Attention.
+        Forward pass for Multi-Head Attention matching gpt2_kapathy.py structure.
         
         Inputs:
         - query: Query tensor of shape (batch_size, seq_len_q, d_model)
-        - key: Key tensor of shape (batch_size, seq_len_k, d_model)
+        - key: Key tensor of shape (batch_size, seq_len_k, d_model)  
         - value: Value tensor of shape (batch_size, seq_len_k, d_model)
         - mask: Optional mask tensor
         - training: Training mode flag
@@ -285,46 +283,25 @@ class MultiHeadAttention(nn.Module):
         - output: Output tensor of shape (batch_size, seq_len_q, d_model)
         - attention_weights: Attention weights for visualization
         """
-        output = None
-        attention_weights = None
+        B, T, C = query.size()
         
-        #############################################################################
-        # TODO: Implement Multi-Head Attention forward pass.                       #
-        #                                                                           #
-        # Steps:                                                                    #
-        # 1. Apply linear transformations to get Q, K, V                          #
-        # 2. Reshape and transpose to separate heads:                             #
-        #    (batch_size, seq_len, d_model) -> (batch_size, num_heads, seq_len, d_k) #
-        # 3. Apply scaled dot-product attention for each head                      #
-        # 4. Concatenate heads back together                                       #
-        # 5. Apply output projection                                               #
-        #                                                                           #
-        # Hints:                                                                    #
-        # - Use tensor.view() and tensor.transpose() for tensor manipulation     #
-        # - Call scaled_dot_product_attention() for the core computation         #
-        # - Remember to handle the mask shape for multiple heads                  #
-        #############################################################################
-        # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-        #print("MHA query:", query.shape)
-        b, s, d_model = query.shape
-        q = self.W_q(query).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
-        k = self.W_k(key).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
-        v = self.W_v(value).view(b, s, self.num_heads, self.d_k).transpose(1, 2)
-
-        x, w = scaled_dot_product_attention(q, k, v, mask=mask, dropout_p=self.dropout_p, training=training)
-        #print("MHA x", x.shape)
-        x = x.transpose(1, 2)
-        x = x.reshape(b, s, -1)
-        #print("MHA x poset reshape", x.shape)
-        #print("MHA w", w.shape)
-        x = self.W_o(x)
-
-        output = x
-        attention_weights = w
-        # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-        #############################################################################
-        #                             END OF YOUR CODE                              #
-        #############################################################################
+        # Combined Q,K,V projection like gpt2_kapathy.py
+        qkv = self.c_attn(query)
+        q, k, v = qkv.split(self.d_model, dim=2)
+        
+        # Reshape for multi-head attention
+        k = k.view(B, T, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, nh, T, hs)
+        q = q.view(B, T, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, nh, T, hs)
+        v = v.view(B, T, self.num_heads, C // self.num_heads).transpose(1, 2)  # (B, nh, T, hs)
+        
+        # Apply scaled dot-product attention
+        x, attention_weights = scaled_dot_product_attention(q, k, v, mask=mask, dropout_p=self.dropout_p, training=training)
+        
+        # Re-assemble all head outputs side by side
+        x = x.transpose(1, 2).contiguous().view(B, T, C)
+        
+        # Output projection
+        output = self.c_proj(x)
         
         return output, attention_weights
     
@@ -337,23 +314,27 @@ class block(nn.Module):
         self.mha = MultiHeadAttention(GPT2Config.n_embd, GPT2Config.n_head)
         self.norm1 = nn.LayerNorm(GPT2Config.n_embd)
         self.norm2 = nn.LayerNorm(GPT2Config.n_embd)
-        self.ff = nn.Sequential(
-            nn.Linear(GPT2Config.n_embd, 4 * GPT2Config.n_embd),
-            nn.GELU(approximate='tanh'),
-            nn.Linear(4 * GPT2Config.n_embd, GPT2Config.n_embd),
-        )
+        self.ff_up = nn.Linear(GPT2Config.n_embd, 4 * GPT2Config.n_embd)
+        self.ff_down = nn.Linear(4 * GPT2Config.n_embd, GPT2Config.n_embd)
+        self.ff_down.LLMC_RESIDUAL_SCALE_FLAG = 1  # Mark for special scaling
+        self.gelu = nn.GELU(approximate='tanh')
 
 
     def forward(self, x):
+        # Create causal mask for the current sequence length
+        B, T, C = x.shape
+        mask = self.mask[:T, :T]  # Slice the mask to current sequence length
+        
         x0 = x
         x = self.norm1(x)
-        x = self.mha(x, x, x, mask=self.mask)[0]
+        x = self.mha(x, x, x, mask=mask)[0]
         x = x + x0
-
 
         x0 = x
         x = self.norm2(x)
-        x = self.ff(x)
+        x = self.ff_up(x)
+        x = self.gelu(x)
+        x = self.ff_down(x)
         x = x + x0
         return x
 
@@ -362,12 +343,33 @@ class block(nn.Module):
 class GPT2(nn.Module):
     def __init__(self, vocab_size=GPT2Config.n_vocab):
         super(GPT2, self).__init__()
-        self.output_linear = nn.Linear(GPT2Config.n_embd, vocab_size)
+        # Create layers to match gpt2_kapathy.py parameter structure
         self.embed = nn.Embedding(vocab_size, GPT2Config.n_embd)
         self.pos_embed = nn.Embedding(GPT2Config.n_ctx, GPT2Config.n_embd)
         self.blocks = nn.ModuleList([block() for _ in range(GPT2Config.n_layer)])
         self.ln = nn.LayerNorm(GPT2Config.n_embd)
+        self.output_linear = nn.Linear(GPT2Config.n_embd, vocab_size, bias=False)  # No bias like gpt2_kapathy
         
+        # Add weight tying like gpt2_kapathy.py 
+        self.output_linear.LLMC_SKIP_INIT = 1  # Don't init this one, we will tie weights
+        self.embed.weight = self.output_linear.weight  # Weight tying
+        
+        # Initialize weights with same method as gpt2_kapathy.py
+        self.init_rng = torch.Generator()
+        self.init_rng.manual_seed(42)
+        self.apply(self._init_weights)
+        
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            # Apply special scaled init to the residual projections, per GPT-2 paper
+            std = 0.02 if not hasattr(module, 'LLMC_RESIDUAL_SCALE_FLAG') else 0.02/math.sqrt(2 * GPT2Config.n_layer)
+            # Skip initializing output_linear, which shares parameters with embed
+            if not hasattr(module, 'LLMC_SKIP_INIT'):
+                torch.nn.init.normal_(module.weight, mean=0.0, std=std, generator=self.init_rng)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02, generator=self.init_rng)
 
     def forward(self, x):
         #print("[gpt2] x shape:", x.shape)
@@ -485,8 +487,8 @@ def train(args, model, data_loader):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a simple transformer model.")
-    parser.add_argument("--input_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_train.bin", help="Path to input binary data file.")
-    parser.add_argument("--input_val_bin", type=str, default="data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to validation binary data file.")
+    parser.add_argument("--input_bin", type=str, default="dev/data/tinyshakespeare/tiny_shakespeare_train.bin", help="Path to input binary data file.")
+    parser.add_argument("--input_val_bin", type=str, default="dev/data/tinyshakespeare/tiny_shakespeare_val.bin", help="Path to validation binary data file.")
     parser.add_argument("--batch_size", type=int, default=4, help="Batch size.")
     parser.add_argument("--seq_length", type=int, default=GPT2Config.n_ctx, help="Sequence length.")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
