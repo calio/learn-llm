@@ -6,6 +6,7 @@ import math
 import datetime
 import time
 import os
+import functools
 
 import torch
 import torch.nn as nn
@@ -15,6 +16,24 @@ import numpy as np
 from tqdm import tqdm
 import wandb
 import tiktoken
+
+# Import Muon optimizer support
+try:
+    from kernels import get_kernel
+    optimizer_kernel = get_kernel("motif-technologies/optimizer")
+    MUON_AVAILABLE = True
+except ImportError:
+    print("Warning: Muon optimizer not available. Install with: pip install git+https://github.com/motif-technologies/optimizer.git")
+    MUON_AVAILABLE = False
+
+# Import FSDP for Muon optimizer
+try:
+    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+    from torch.distributed.fsdp.fully_sharded_data_parallel import CPUOffload
+    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+    FSDP_AVAILABLE = True
+except ImportError:
+    FSDP_AVAILABLE = False
 
 
 def print0(*args, **kwargs):
@@ -525,7 +544,7 @@ def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
     
         
 # Training Loop
-def train(args, model, data_loader):
+def train(args, model, data_loader, optimizer):
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     is_main_process = (local_rank == 0)
 
@@ -553,9 +572,8 @@ def train(args, model, data_loader):
     print0("Moving model to device...")
     model = model.to(device)
 
-    print0("Creating loss function and optimizer...")
+    print0("Creating loss function...")
     ce_loss = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     print0("Creating validation data loader...")
     val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)  # Validation always single process
@@ -692,6 +710,10 @@ def parse_args():
     parser.add_argument("--seq_length", type=int, default=GPT2Config.n_ctx, help="Sequence length.")
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
+    parser.add_argument("--optimizer", type=str, default="muon", choices=["adam", "muon"], help="Optimizer to use.")
+    parser.add_argument("--momentum", type=float, default=0.9, help="Momentum for Muon optimizer.")
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay for optimizer.")
+    parser.add_argument("--use_fsdp", action="store_true", help="Use FSDP instead of DDP (recommended for Muon optimizer).")
     parser.add_argument("--num_processes", type=int, default=1, help="Number of processes for distributed data loading.")
     parser.add_argument('--local_rank', type=int, default=-1, help='Local rank for distributed training (set by torch.distributed.launch)')
     
@@ -770,7 +792,26 @@ def main():
             torch.cuda.set_device(args.local_rank)
             device = torch.device('cuda', args.local_rank)
             dist.init_process_group(backend='nccl', init_method='env://')
-            model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
+            
+            # Use FSDP for Muon optimizer or when explicitly requested
+            if (args.optimizer == "muon" or args.use_fsdp) and FSDP_AVAILABLE:
+                print0("Using FSDP (Fully Sharded Data Parallel)")
+                # FSDP auto wrap policy for transformer blocks
+                auto_wrap_policy = functools.partial(
+                    transformer_auto_wrap_policy,
+                    transformer_layer_cls={block}  # Our transformer block class
+                )
+                model = FSDP(
+                    model.to(device),
+                    auto_wrap_policy=auto_wrap_policy,
+                    mixed_precision=None,  # Can be configured for fp16/bf16
+                    device_id=args.local_rank,
+                    sync_module_states=True,
+                    param_init_fn=None,
+                )
+            else:
+                print0("Using DDP (Distributed Data Parallel)")
+                model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
         else:
             device = torch.device('cuda')
             model = nn.DataParallel(model).to(device)
@@ -778,7 +819,28 @@ def main():
         device = get_device()
         model = model.to(device)
     
-    train(args, model, loader)
+    # Create optimizer after model wrapping (important for FSDP + Muon)
+    print0("Creating optimizer...")
+    lr = args.lr
+    if args.optimizer == "muon" and MUON_AVAILABLE:
+        print0(f"Using Muon optimizer with lr={lr}, momentum={args.momentum}, weight_decay={args.weight_decay}")
+        optimizer = optimizer_kernel.Muon(
+            model.parameters(),
+            lr=lr,
+            momentum=args.momentum,
+            weight_decay=args.weight_decay,
+        )
+    else:
+        if args.optimizer == "muon" and not MUON_AVAILABLE:
+            print0("Muon optimizer requested but not available, falling back to Adam")
+        print0(f"Using Adam optimizer with lr={lr}, weight_decay={args.weight_decay}")
+        optimizer = torch.optim.Adam(
+            model.parameters(), 
+            lr=lr, 
+            weight_decay=args.weight_decay
+        )
+    
+    train(args, model, loader, optimizer)
     
     # Finish wandb run
     if args.wandb:
