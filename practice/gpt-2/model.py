@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from tqdm import tqdm
 import wandb
+import tiktoken
 
 
 
@@ -386,7 +387,71 @@ class GPT2(nn.Module):
         x = self.output_linear(x) # (B, T, vocab_size)
         #x = F.softmax(x, dim=-1)
         return x
+
+    @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+        """
+        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
+        the sequence max_new_tokens times, feeding the predictions back into the model each time.
+        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        """
+        for _ in range(max_new_tokens):
+            # if the sequence context is growing too long we must crop it at block_size
+            idx_cond = idx if idx.size(1) <= GPT2Config.n_ctx else idx[:, -GPT2Config.n_ctx:]
+            # forward the model to get the logits for the index in the sequence
+            logits = self(idx_cond)
+            # pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # optionally crop the logits to only the top k options
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = F.softmax(logits, dim=-1)
+            # sample from the distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+            # append sampled index to the running sequence and continue
+            idx = torch.cat((idx, idx_next), dim=1)
+
+        return idx
     
+
+def generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=32, temperature=1.0, top_k=40):
+    """
+    Generate sample text from the model following gpt2_kapathy.py pattern.
+    
+    Args:
+        model: The GPT2 model
+        tokenizer: tiktoken encoder 
+        device: Device to run generation on
+        start_text: Starting text (empty means start with EOT token)
+        max_new_tokens: Number of tokens to generate
+        temperature: Sampling temperature
+        top_k: Top-k sampling parameter
+    
+    Returns:
+        Generated text string
+    """
+    model.eval()
+    
+    with torch.no_grad():
+        # Start with end-of-text token like gpt2_kapathy.py
+        if start_text:
+            start_ids = tokenizer.encode(start_text)
+        else:
+            start_ids = [tokenizer.eot_token]  # Start with EOT token
+        
+        # Create input tensor
+        x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
+        
+        # Generate tokens
+        generated = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+        
+        # Decode the generated sequence
+        generated_text = tokenizer.decode(generated[0].tolist())
+        
+    model.train()
+    return generated_text
 
 def validate(args, model, data_loader):
     model.eval()
@@ -432,7 +497,9 @@ def train(args, model, data_loader):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)
+    tokenizer = tiktoken.get_encoding("gpt2")
 
+    print("device:", device)
     print("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
     
     global_step = 0
@@ -470,7 +537,13 @@ def train(args, model, data_loader):
             #if it % 50 == 0:
             #    print(f"{epoch=}, {it=}, {loss.item()=:.4f}")
 
+
+        
+        generated_text = generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens=256, temperature=1.0, top_k=40)
+        print(f"Generated: {generated_text}") 
+
         # Validation at the end of each epoch
+
         val_loss = validate(args, model, val_loader)
         
         # Log validation metrics to wandb
