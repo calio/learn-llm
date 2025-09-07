@@ -532,10 +532,93 @@ def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
     for _ in range(max_new_tokens):
         pass
 
+
+def save_checkpoint(model, optimizer, step, epoch, output_dir, filename=None, is_main_process=True, distributed=False):
+    """
+    Save a training checkpoint with model and optimizer state.
+    
+    Args:
+        model: The model to save
+        optimizer: The optimizer to save
+        step: Current training step
+        epoch: Current training epoch
+        output_dir: Directory to save the checkpoint
+        filename: Custom filename (if None, uses default pattern)
+        is_main_process: Whether this is the main process (only main process saves)
+        distributed: Whether distributed training is active (for barriers)
+    
+    Returns:
+        checkpoint_path: Path where the checkpoint was saved (or would be saved)
+    """
+    if filename is None:
+        filename = f"checkpoint_iter_{step}.pt"
+    
+    checkpoint_path = os.path.join(output_dir, filename)
+    
+    # Synchronize before checkpoint saving if distributed
+    if distributed and hasattr(model, 'module') and torch.distributed.is_initialized():
+        torch.distributed.barrier()
+    
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Save checkpoint (only from main process)
+    if is_main_process:
+        checkpoint_data = {
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'step': step,
+            'epoch': epoch
+        }
+        torch.save(checkpoint_data, checkpoint_path)
+        print0(f"Checkpoint saved: {checkpoint_path}")
+    
+    # Synchronize after checkpoint saving if distributed
+    if distributed and hasattr(model, 'module') and torch.distributed.is_initialized():
+        torch.distributed.barrier()
+    
+    return checkpoint_path
+
+
+def load_checkpoint(checkpoint_path, model, optimizer=None, device=None):
+    """
+    Load a training checkpoint and restore model and optimizer state.
+    
+    Args:
+        checkpoint_path: Path to the checkpoint file
+        model: The model to load state into
+        optimizer: The optimizer to load state into (optional)
+        device: Device to map the checkpoint to (optional)
+    
+    Returns:
+        dict: Checkpoint metadata (step, epoch, etc.)
+    """
+    if device is None:
+        device = get_device()
+    
+    print0(f"Loading checkpoint from: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Load model state
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Load optimizer state if provided
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
+    # Extract metadata
+    metadata = {
+        'step': checkpoint.get('step', 0),
+        'epoch': checkpoint.get('epoch', 0)
+    }
+    
+    print0(f"Checkpoint loaded: step={metadata['step']}, epoch={metadata['epoch']}")
+    return metadata
+
     
         
 # Training Loop
-def train(args, model, data_loader, optimizer):
+def train(args, model, data_loader, optimizer, start_step=0, start_epoch=0):
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     is_main_process = (local_rank == 0)
 
@@ -574,12 +657,14 @@ def train(args, model, data_loader, optimizer):
 
     print0("device:", device)
     print0("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+    if start_step > 0:
+        print0(f"Resuming from step {start_step}, epoch {start_epoch}")
     print0("Starting training loop...")
     
-    global_step = 0
+    global_step = start_step
     step_start_time = None
     
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         # Only show progress bar in main process
         if is_main_process:
             pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True, mininterval=1)
@@ -650,24 +735,15 @@ def train(args, model, data_loader, optimizer):
 
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
-                # Synchronize before checkpoint saving
-                if hasattr(model, 'module') and torch.distributed.is_initialized():
-                    torch.distributed.barrier()
-                
-                os.makedirs(run_output_dir, exist_ok=True)
-                checkpoint_path = os.path.join(run_output_dir, f"checkpoint_iter_{global_step}.pt")
-                if is_main_process:
-                    torch.save({
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'step': global_step,
-                        'epoch': epoch
-                    }, checkpoint_path)
-                    print0(f"Checkpoint saved: {checkpoint_path}")
-                
-                # Synchronize after checkpoint saving
-                if hasattr(model, 'module') and torch.distributed.is_initialized():
-                    torch.distributed.barrier()
+                save_checkpoint(
+                    model=model,
+                    optimizer=optimizer,
+                    step=global_step,
+                    epoch=epoch,
+                    output_dir=run_output_dir,
+                    is_main_process=is_main_process,
+                    distributed=True
+                )
             global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
@@ -688,6 +764,18 @@ def train(args, model, data_loader, optimizer):
                     "val/epoch": epoch + 1
                 }, step=global_step)
 
+    # Save final checkpoint at the end of training
+    print0("Training completed. Saving final checkpoint...")
+    save_checkpoint(
+        model=model,
+        optimizer=optimizer,
+        step=global_step,
+        epoch=epochs,
+        output_dir=run_output_dir,
+        filename="checkpoint_final.pt",
+        is_main_process=is_main_process,
+        distributed=True
+    )
 
     
 # Evaluation Metrics
@@ -717,6 +805,7 @@ def parse_args():
     parser.add_argument("--eval_every", type=int, default=200, help="How often (in iterations) to run validation.")
     parser.add_argument("--save_every", type=int, default=1000, help="How often (in iterations) to save a checkpoint.")
     parser.add_argument("--output_dir", type=str, default="output", help="Directory to store checkpoints and logs.")
+    parser.add_argument("--resume_from", type=str, default=None, help="Path to checkpoint file to resume training from.")
     args = parser.parse_args()
     return args
 
@@ -829,7 +918,19 @@ def main():
             weight_decay=args.weight_decay
         )
     
-    train(args, model, loader, optimizer)
+    # Resume from checkpoint if specified
+    start_step = 0
+    start_epoch = 0
+    if args.resume_from and is_main_process:
+        if os.path.exists(args.resume_from):
+            metadata = load_checkpoint(args.resume_from, model, optimizer)
+            start_step = metadata['step']
+            start_epoch = metadata['epoch']
+            print0(f"Resuming training from step {start_step}, epoch {start_epoch}")
+        else:
+            print0(f"Warning: Resume checkpoint {args.resume_from} not found. Starting from scratch.")
+    
+    train(args, model, loader, optimizer, start_step, start_epoch)
     
     # Finish wandb run
     if args.wandb:
