@@ -457,8 +457,11 @@ def generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens
         # Create input tensor
         x = torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...]
         
-        # Generate tokens
-        generated = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+        # Generate tokens - handle wrapped models (DDP, DataParallel)
+        if hasattr(model, 'module'):
+            generated = model.module.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+        else:
+            generated = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
         
         # Decode the generated sequence
         generated_text = tokenizer.decode(generated[0].tolist())
@@ -467,7 +470,11 @@ def generate_sample_text(model, tokenizer, device, start_text="", max_new_tokens
     return generated_text
 
 def validate(args, model, data_loader):
-    model.eval()
+    # Handle wrapped models (DDP, DataParallel) for eval mode
+    if hasattr(model, 'module'):
+        model.module.eval()
+    else:
+        model.eval()
     device = get_device()
 
     with torch.no_grad():
@@ -483,7 +490,11 @@ def validate(args, model, data_loader):
         avg_val_loss = sum(val_losses) / len(val_losses)
         print(f"Validation Loss: {avg_val_loss:.4f}")
 
-    model.train()
+    # Handle wrapped models for train mode
+    if hasattr(model, 'module'):
+        model.module.train()
+    else:
+        model.train()
     return avg_val_loss
 
 def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
@@ -544,7 +555,7 @@ def train(args, model, data_loader):
     for epoch in range(epochs):
         # Only show progress bar in main process
         if is_main_process:
-            pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True)
+            pbar = tqdm(range(iterations), desc=f"Epoch {epoch+1}/{epochs}", leave=True, mininterval=1)
         else:
             pbar = range(iterations)
         for it in pbar:
