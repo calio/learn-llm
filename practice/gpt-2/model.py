@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import glob
 import argparse
 import math
+import time
 
 import torch
 import torch.nn as nn
@@ -13,6 +14,13 @@ from tqdm import tqdm
 import wandb
 import tiktoken
 
+
+def print0(*args, **kwargs):
+    """Print only from rank 0 process"""
+    import os
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank == 0:
+        print(*args, **kwargs)
 
 
 def get_device():
@@ -73,7 +81,7 @@ class DistributedDataLoader:
         if ntok_total == 0:
             raise ValueError(f"No valid data shards found for pattern {filename_pattern} with batch_size={B}, seq_length={T}, num_processes={num_processes}.")
         self.ntok_total = ntok_total
-        print(f"DataLoader: total number of tokens: {ntok_total:,} across {len(self.files)} files")
+        print0(f"DataLoader: total number of tokens: {ntok_total:,} across {len(self.files)} files")
 
         # kick things off
         self.current_shard = None
@@ -502,7 +510,7 @@ def train(args, model, data_loader):
     run_output_dir = os.path.join(args.output_dir, run_dir)
     if is_main_process:
         os.makedirs(run_output_dir, exist_ok=True)
-        print(f"Outputs will be saved to: {run_output_dir}")
+        print0(f"Outputs will be saved to: {run_output_dir}")
 
     epochs = args.epochs
     lr = args.lr
@@ -511,18 +519,31 @@ def train(args, model, data_loader):
     iterations = data_loader.ntok_total // (B * T * args.num_processes)
 
     device = get_device()
+    if is_main_process:
+        print0("Moving model to device...")
     model = model.to(device)
 
+    if is_main_process:
+        print0("Creating loss function and optimizer...")
     ce_loss = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)
+    if is_main_process:
+        print0("Creating validation data loader...")
+    val_loader = DistributedDataLoader(args.input_val_bin, B=args.batch_size, T=args.seq_length, process_rank=0, num_processes=1)  # Validation always single process
+    
+    if is_main_process:
+        print0("Loading tokenizer...")
     tokenizer = tiktoken.get_encoding("gpt2")
 
-    print("device:", device)
-    print("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+    if is_main_process:
+        print0("device:", device)
+        print0("Training for %d epochs, %d iterations per epoch" % (epochs, iterations))
+        print0("Starting training loop...")
     
     global_step = 0
+    step_start_time = None
+    
     for epoch in range(epochs):
         # Only show progress bar in main process
         if is_main_process:
@@ -530,17 +551,39 @@ def train(args, model, data_loader):
         else:
             pbar = range(iterations)
         for it in pbar:
+            # Time the step for tokens/sec calculation
+            if step_start_time is not None:
+                step_time = time.time() - step_start_time
+                tokens_per_sec = (B * T) / step_time
+            else:
+                tokens_per_sec = 0.0
+            step_start_time = time.time()
+            
+            if is_main_process and it == 0:
+                print0("Loading first batch...")
             x, y = data_loader.next_batch()
+            if is_main_process and it == 0:
+                print0(f"Batch loaded. Shape: x={x.shape}, y={y.shape}")
+                print0("Moving batch to device...")
             x, y = x.to(device), y.to(device)
+            if is_main_process and it == 0:
+                print0("Running forward pass...")
             pred = model(x)
+            if is_main_process and it == 0:
+                print0("Computing loss...")
             loss = ce_loss(pred.view(-1, GPT2Config.n_vocab), y.view(-1))
+            if is_main_process and it == 0:
+                print0("Running backward pass...")
             optimizer.zero_grad()
             loss.backward()
+            if is_main_process and it == 0:
+                print0("Optimizer step...")
             optimizer.step()
-            # Update progress bar with loss information
+            
+            # Update progress bar with loss and tokens/sec information
             if is_main_process:
                 if hasattr(pbar, 'set_postfix'):
-                    pbar.set_postfix(loss=f"{loss.item():.4f}")
+                    pbar.set_postfix(loss=f"{loss.item():.4f}", tok_per_sec=f"{tokens_per_sec:.0f}")
             # Log training metrics to wandb only at eval_every frequency
             if global_step % args.eval_every == 0 and is_main_process and args.wandb:
                 wandb.log({
@@ -563,8 +606,8 @@ def train(args, model, data_loader):
                     f.write(f"Generated: {generated_text}\n")
                     f.write("-" * 80 + "\n")
                 
-                print(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}")
-                print(f"Generated: {generated_text}")
+                print0(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}")
+                print0(f"Generated: {generated_text}")
                 
                 if args.wandb:
                     wandb.log({
@@ -585,7 +628,7 @@ def train(args, model, data_loader):
                         'step': global_step,
                         'epoch': epoch
                     }, checkpoint_path)
-                    print(f"Checkpoint saved: {checkpoint_path}")
+                    print0(f"Checkpoint saved: {checkpoint_path}")
             global_step += 1
 
             ## e.g., forward pass, loss computation, backward pass, optimizer step
@@ -634,9 +677,18 @@ def parse_args():
     return args
 
 def main():
+    import os
     args = parse_args()
     
-    is_main_process = (not hasattr(args, 'local_rank') or args.local_rank == 0)
+    # Determine if we're in distributed mode
+    world_size = int(os.environ.get('WORLD_SIZE', 1))
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    
+    # Override num_processes based on actual world size
+    args.num_processes = world_size
+    args.local_rank = local_rank if world_size > 1 else -1
+    
+    is_main_process = (local_rank == 0)
 
     # Wandb is enabled by default, unless --no_wandb is specified
     args.wandb = not args.no_wandb
@@ -660,8 +712,8 @@ def main():
                 "n_layer": GPT2Config.n_layer,
             }
         )
-        print(f"✅ Initialized wandb project: {args.wandb_project}")
-        print(f"🔗 Run URL: {run.get_url()}")
+        print0(f"✅ Initialized wandb project: {args.wandb_project}")
+        print0(f"🔗 Run URL: {run.get_url()}")
     
     # Run positional encoding test
     #print("Testing positional encoding implementations...")
@@ -672,8 +724,8 @@ def main():
         args.input_bin,
         B=args.batch_size,
         T=args.seq_length,
-        process_rank=0,
-        num_processes=1,
+        process_rank=local_rank,
+        num_processes=world_size,
     )
     
     model = GPT2()
