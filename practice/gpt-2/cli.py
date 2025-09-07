@@ -22,7 +22,7 @@ except ImportError as e:
 
 # Try to import HuggingFace transformers (optional)
 try:
-    from transformers import GPT2LMHeadModel, AutoTokenizer
+    from transformers import AutoModelForCausalLM, AutoTokenizer
     HF_AVAILABLE = True
 except ImportError:
     print("⚠️  HuggingFace transformers not available. Only local checkpoints supported.")
@@ -137,9 +137,9 @@ class ModelCLI:
             raise ImportError("HuggingFace transformers not available. Install with: pip install transformers")
         
         try:
-            # Load model and tokenizer
+            # Load model and tokenizer using Auto classes (works with any causal LM)
             print("🤗 Loading HuggingFace model...")
-            self.model = GPT2LMHeadModel.from_pretrained(self.model_path)
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_path)
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
             
             # Set pad token if not exists
