@@ -591,6 +591,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
     parser.add_argument("--num_processes", type=int, default=1, help="Number of processes for distributed data loading.")
+    parser.add_argument('--local_rank', type=int, default=-1, help='Local rank for distributed training (set by torch.distributed.launch)')
     
     # Wandb arguments
     parser.add_argument("--no_wandb", action="store_true", help="Disable Weights & Biases logging.")
@@ -650,6 +651,21 @@ def main():
     # Log model summary if wandb is enabled
     if args.wandb:
         wandb.watch(model, log="all", log_freq=10)
+    
+    if torch.cuda.device_count() > 1:
+        import torch.distributed as dist
+        import os
+        if args.local_rank != -1:
+            torch.cuda.set_device(args.local_rank)
+            dist.init_process_group(backend='nccl')
+            device = torch.device('cuda', args.local_rank)
+            model = nn.parallel.DistributedDataParallel(model.to(device), device_ids=[args.local_rank])
+        else:
+            device = torch.device('cuda')
+            model = nn.DataParallel(model).to(device)
+    else:
+        device = get_device()
+        model = model.to(device)
     
     train(args, model, loader)
     
