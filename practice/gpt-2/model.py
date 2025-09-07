@@ -490,6 +490,20 @@ def generate(model, prompt_tokens, max_new_tokens, temperature=1.0, top_k=None):
 def train(args, model, data_loader):
     is_main_process = (not hasattr(args, 'local_rank') or args.local_rank == 0)
 
+    # Create run directory with timestamp or wandb run name
+    import datetime
+    if hasattr(args, 'wandb_run_name') and args.wandb_run_name:
+        run_dir = args.wandb_run_name
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = f"run_{timestamp}"
+    
+    # Create run-specific output directory
+    run_output_dir = os.path.join(args.output_dir, run_dir)
+    if is_main_process:
+        os.makedirs(run_output_dir, exist_ok=True)
+        print(f"Outputs will be saved to: {run_output_dir}")
+
     epochs = args.epochs
     lr = args.lr
     B = args.batch_size
@@ -542,8 +556,8 @@ def train(args, model, data_loader):
                 
                 # Write to log file
                 import os
-                os.makedirs(args.output_dir, exist_ok=True)
-                log_path = os.path.join(args.output_dir, "train.log")
+                os.makedirs(run_output_dir, exist_ok=True)
+                log_path = os.path.join(run_output_dir, "train.log")
                 with open(log_path, "a") as f:
                     f.write(f"Step {global_step}, Train Loss: {loss.item():.6f}, Val Loss: {val_loss:.6f}\n")
                     f.write(f"Generated: {generated_text}\n")
@@ -562,8 +576,8 @@ def train(args, model, data_loader):
             # Save checkpoint every save_every iterations
             if global_step % args.save_every == 0:
                 import os
-                os.makedirs(args.output_dir, exist_ok=True)
-                checkpoint_path = os.path.join(args.output_dir, f"checkpoint_iter_{global_step}.pt")
+                os.makedirs(run_output_dir, exist_ok=True)
+                checkpoint_path = os.path.join(run_output_dir, f"checkpoint_iter_{global_step}.pt")
                 if is_main_process:
                     torch.save({
                         'model_state_dict': model.state_dict(),
